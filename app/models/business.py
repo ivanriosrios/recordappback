@@ -1,0 +1,39 @@
+import uuid
+from datetime import datetime
+from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import UUID
+
+from app.core.database import Base
+
+import enum
+
+
+class PlanType(str, enum.Enum):
+    FREE = "free"
+    BASIC = "basic"
+    PRO = "pro"
+
+
+class Business(Base):
+    __tablename__ = "businesses"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    business_type: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
+    whatsapp_phone: Mapped[str] = mapped_column(String(15), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    plan: Mapped[PlanType] = mapped_column(SAEnum(PlanType), default=PlanType.FREE, nullable=False)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    clients: Mapped[list["Client"]] = relationship("Client", back_populates="business", cascade="all, delete-orphan")
+    services: Mapped[list["Service"]] = relationship("Service", back_populates="business", cascade="all, delete-orphan")
+    templates: Mapped[list["Template"]] = relationship("Template", back_populates="business", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<Business {self.name}>"
