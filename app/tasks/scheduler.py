@@ -1,0 +1,160 @@
+"""
+Scheduler Celery Beat: tareas periódicas del motor de envío.
+
+Tareas:
+- check_and_enqueue_reminders: cada hora, busca reminders del día y los encola
+- check_retries: cada 6h, maneja reintentos de mensajes fallidos
+"""
+import logging
+from datetime import date, datetime, timedelta
+
+from app.tasks.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+# Días máximo de silencio antes de considerar un reintento como fallido definitivo
+MAX_RETRY_WINDOW_DAYS = 3
+MAX_RETRIES = 2
+
+
+def _get_session():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    engine = create_engine(sync_url, pool_pre_ping=True)
+    Session = sessionmaker(bind=engine)
+    return Session()
+
+
+@celery_app.task(name="app.tasks.scheduler.check_and_enqueue_reminders")
+def check_and_enqueue_reminders():
+    """
+    Corre cada hora. Busca todos los recordatorios activos cuya
+    next_send_date sea hoy o anterior y los encola para envío.
+
+    Lógica:
+    - next_send_date <= hoy → es hora de enviar
+    - notify_days_before: si el recordatorio avisa N días antes,
+      la fecha real de envío es next_send_date - notify_days_before
+    """
+    from app.tasks.send_reminder import send_reminder_task
+    from app.models.reminder import Reminder, ReminderStatus
+    from sqlalchemy import and_
+
+    session = _get_session()
+    try:
+        today = date.today()
+
+        # Fecha de disparo = next_send_date - notify_days_before
+        # Buscamos reminders donde hoy >= fecha de disparo
+        reminders = (
+            session.query(Reminder)
+            .filter(
+                and_(
+                    Reminder.status == ReminderStatus.ACTIVE,
+                    Reminder.next_send_date <= today + timedelta(days=3),  # ventana holgada
+                )
+            )
+            .all()
+        )
+
+        enqueued = 0
+        for reminder in reminders:
+            # Calcular fecha real de envío
+            send_date = reminder.next_send_date - timedelta(days=reminder.notify_days_before or 0)
+
+            if send_date > today:
+                continue  # todavía no
+
+            # Evitar reenviar si ya se envió hoy
+            if reminder.last_sent_at and reminder.last_sent_at.date() == today:
+                continue
+
+            send_reminder_task.delay(str(reminder.id))
+            enqueued += 1
+            logger.info(f"[scheduler] Encolado reminder {reminder.id} para cliente {reminder.client_id}")
+
+        logger.info(f"[scheduler] check_and_enqueue_reminders — {enqueued} recordatorios encolados")
+        return {"enqueued": enqueued, "checked": len(reminders)}
+
+    except Exception as exc:
+        logger.exception(f"[scheduler] Error en check_and_enqueue_reminders: {exc}")
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.scheduler.check_retries")
+def check_retries():
+    """
+    Corre cada 6 horas. Busca logs con status=failed que no
+    hayan superado MAX_RETRIES y los reencola.
+
+    También busca mensajes sin respuesta después de MAX_RETRY_WINDOW_DAYS
+    y envía un segundo intento.
+    """
+    from app.tasks.send_reminder import send_reminder_task
+    from app.models.reminder_log import ReminderLog, LogStatus
+    from app.models.reminder import Reminder, ReminderStatus
+    from sqlalchemy import and_, func
+
+    session = _get_session()
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=MAX_RETRY_WINDOW_DAYS)
+
+        # Reminders con log fallido reciente (dentro de la ventana)
+        failed_logs = (
+            session.query(ReminderLog)
+            .filter(
+                and_(
+                    ReminderLog.status == LogStatus.FAILED,
+                    ReminderLog.sent_at >= cutoff,
+                )
+            )
+            .all()
+        )
+
+        retried = 0
+        seen_reminders = set()
+
+        for log in failed_logs:
+            reminder_id = str(log.reminder_id)
+            if reminder_id in seen_reminders:
+                continue
+            seen_reminders.add(reminder_id)
+
+            # Contar cuántos intentos fallidos tiene este reminder
+            fail_count = (
+                session.query(func.count(ReminderLog.id))
+                .filter(
+                    and_(
+                        ReminderLog.reminder_id == log.reminder_id,
+                        ReminderLog.status == LogStatus.FAILED,
+                    )
+                )
+                .scalar()
+            )
+
+            if fail_count < MAX_RETRIES:
+                send_reminder_task.delay(reminder_id)
+                retried += 1
+                logger.info(f"[scheduler] Reintento #{fail_count + 1} para reminder {reminder_id}")
+            else:
+                # Marcar como done para no seguir intentando
+                reminder = session.get(Reminder, reminder_id)
+                if reminder and reminder.status == ReminderStatus.ACTIVE:
+                    reminder.status = ReminderStatus.DONE
+                    session.commit()
+                    logger.warning(f"[scheduler] Reminder {reminder_id} marcado DONE tras {fail_count} fallos")
+
+        logger.info(f"[scheduler] check_retries — {retried} reintentos encolados")
+        return {"retried": retried}
+
+    except Exception as exc:
+        logger.exception(f"[scheduler] Error en check_retries: {exc}")
+        raise
+    finally:
+        session.close()

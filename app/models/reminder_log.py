@@ -22,6 +22,8 @@ class LogStatus(str, enum.Enum):
     RESPONDED_YES = "responded_yes"
     RESPONDED_NO = "responded_no"
     FAILED = "failed"
+    RATED_GOOD = "rated_good"  # respondió BIEN a la encuesta post-servicio
+    RATED_BAD = "rated_bad"    # respondió MAL a la encuesta post-servicio
 
 
 class ReminderLog(Base):

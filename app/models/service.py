@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import String, Text, Boolean, Numeric, ForeignKey
+from sqlalchemy import String, Text, Boolean, Numeric, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from decimal import Decimal
@@ -16,10 +16,12 @@ class Service(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     ref_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    follow_up_days: Mapped[int | None] = mapped_column(Integer, nullable=True)  # días después del servicio para enviar encuesta
 
     # Relationships
     business: Mapped["Business"] = relationship("Business", back_populates="services")
     reminders: Mapped[list["Reminder"]] = relationship("Reminder", back_populates="service")
+    service_logs: Mapped[list["ServiceLog"]] = relationship("ServiceLog", back_populates="service")
 
     def __repr__(self) -> str:
         return f"<Service {self.name}>"

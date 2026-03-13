@@ -12,6 +12,8 @@ class TemplateType(str, enum.Enum):
     REMINDER = "reminder"
     PROMO = "promo"
     REACTIVATION = "reactivation"
+    FOLLOW_UP = "follow_up"    # encuesta post-servicio
+    BIRTHDAY = "birthday"      # felicitación cumpleaños
 
 
 class TemplateChannel(str, enum.Enum):

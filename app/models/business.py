@@ -34,6 +34,7 @@ class Business(Base):
     clients: Mapped[list["Client"]] = relationship("Client", back_populates="business", cascade="all, delete-orphan")
     services: Mapped[list["Service"]] = relationship("Service", back_populates="business", cascade="all, delete-orphan")
     templates: Mapped[list["Template"]] = relationship("Template", back_populates="business", cascade="all, delete-orphan")
+    service_logs: Mapped[list["ServiceLog"]] = relationship("ServiceLog", back_populates="business", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Business {self.name}>"
