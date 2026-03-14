@@ -4,7 +4,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.core.database import get_db
-from app.models.client import Client, ClientStatus
+from app.models.client import Client, ClientStatus, ChannelType
 from app.schemas.client import ClientCreate, ClientUpdate, ClientResponse
 
 router = APIRouter(prefix="/businesses/{business_id}/clients", tags=["clients"])
@@ -12,12 +12,24 @@ router = APIRouter(prefix="/businesses/{business_id}/clients", tags=["clients"])
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(business_id: UUID, data: ClientCreate, db: AsyncSession = Depends(get_db)):
+    # Normalizar enums a minúsculas para evitar errores de tipo en PostgreSQL
+    if isinstance(data.preferred_channel, ChannelType):
+        channel_enum = data.preferred_channel
+    elif data.preferred_channel:
+        ch_val = str(data.preferred_channel).lower()
+        channel_enum = ChannelType(ch_val) if ch_val in {c.value for c in ChannelType} else ChannelType.WHATSAPP
+    else:
+        channel_enum = ChannelType.WHATSAPP
+
+    status_enum = ClientStatus.ACTIVE  # default
+
     client = Client(
         business_id=business_id,
         display_name=data.display_name,
         phone=data.phone,
         email=data.email,
-        preferred_channel=data.preferred_channel,
+        preferred_channel=channel_enum,
+        status=status_enum,
         notes=data.notes,
     )
     db.add(client)
@@ -67,6 +79,24 @@ async def update_client(business_id: UUID, client_id: UUID, data: ClientUpdate, 
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     update_data = data.model_dump(exclude_unset=True)
+
+    # Normalizar enums si vienen como string
+    if "preferred_channel" in update_data:
+        val = update_data["preferred_channel"]
+        if isinstance(val, ChannelType):
+            update_data["preferred_channel"] = val
+        else:
+            ch_val = str(val).lower()
+            update_data["preferred_channel"] = ChannelType(ch_val) if ch_val in {c.value for c in ChannelType} else ChannelType.WHATSAPP
+
+    if "status" in update_data:
+        val = update_data["status"]
+        if isinstance(val, ClientStatus):
+            update_data["status"] = val
+        else:
+            st_val = str(val).lower()
+            update_data["status"] = ClientStatus(st_val) if st_val in {s.value for s in ClientStatus} else ClientStatus.ACTIVE
+
     for field, value in update_data.items():
         setattr(client, field, value)
 
