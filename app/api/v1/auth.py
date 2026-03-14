@@ -46,10 +46,14 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Login con email y password."""
+    # Some datasets have duplicate active businesses per email; pick the newest instead of raising.
     result = await db.execute(
-        select(Business).where(Business.email == data.email, Business.is_active.is_(True))
+        select(Business)
+        .where(Business.email == data.email, Business.is_active.is_(True))
+        .order_by(Business.created_at.desc())
+        .limit(1)
     )
-    business = result.scalar_one_or_none()
+    business = result.scalars().first()
 
     if not business or not business.password_hash:
         raise HTTPException(
