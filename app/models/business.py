@@ -26,7 +26,7 @@ class Business(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Use enum values (lowercase) to match DB enum definition
     plan: Mapped[PlanType] = mapped_column(
-        SAEnum(PlanType, name="plantype", values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        SAEnum(PlanType, name="plantype", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
         default=PlanType.FREE,
         nullable=False,
     )
