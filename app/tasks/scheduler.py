@@ -56,7 +56,8 @@ def check_and_enqueue_reminders():
             session.query(Reminder)
             .filter(
                 and_(
-                    Reminder.status == ReminderStatus.ACTIVE,
+                    # Usar value en vez del Enum para evitar pasar 'ACTIVE' (nombre) en vez de 'active' (valor)
+                    Reminder.status == ReminderStatus.ACTIVE.value,
                     Reminder.next_send_date <= today + timedelta(days=3),  # ventana holgada
                 )
             )
