@@ -7,13 +7,20 @@ from app.core.config import get_settings
 settings = get_settings()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+MAX_BCRYPT_BYTES = 72  # bcrypt ignores after 72 bytes; enforce limit explicitly
 
 
 def hash_password(password: str) -> str:
+    # Guardar contraseñas de más de 72 bytes dispara error en bcrypt
+    if len(password.encode("utf-8")) > MAX_BCRYPT_BYTES:
+        raise ValueError("Password exceeds bcrypt 72-byte limit")
     return pwd_context.hash(password)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
+    # No intentar verificar contraseñas que exceden el límite de bcrypt
+    if len(plain.encode("utf-8")) > MAX_BCRYPT_BYTES:
+        return False
     return pwd_context.verify(plain, hashed)
 
 

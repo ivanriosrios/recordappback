@@ -15,6 +15,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Registrar un nuevo negocio y devolver token."""
+    if len(data.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña no puede superar 72 caracteres (límite bcrypt).",
+        )
     # Validar unicidad de email y teléfono
     existing_email = await db.execute(select(Business.id).where(Business.email == data.email))
     if existing_email.scalars().first():
@@ -55,6 +60,11 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Login con email y password."""
+    if len(data.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña no puede superar 72 caracteres (límite bcrypt).",
+        )
     # Some datasets have duplicate active businesses per email; pick the newest instead of raising.
     result = await db.execute(
         select(Business)
