@@ -28,8 +28,16 @@ class Template(Base):
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[TemplateType] = mapped_column(SAEnum(TemplateType), default=TemplateType.REMINDER, nullable=False)
-    channel: Mapped[TemplateChannel] = mapped_column(SAEnum(TemplateChannel), default=TemplateChannel.WHATSAPP, nullable=False)
+    type: Mapped[TemplateType] = mapped_column(
+        SAEnum(TemplateType, name="templatetype", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=TemplateType.REMINDER,
+        nullable=False,
+    )
+    channel: Mapped[TemplateChannel] = mapped_column(
+        SAEnum(TemplateChannel, name="templatechannel", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=TemplateChannel.WHATSAPP,
+        nullable=False,
+    )
 
     # Relationships
     business: Mapped["Business"] = relationship("Business", back_populates="templates")

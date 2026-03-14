@@ -27,11 +27,19 @@ class Reminder(Base):
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("clients.id"), nullable=False)
     service_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("services.id"), nullable=False)
     template_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("templates.id"), nullable=False)
-    type: Mapped[ReminderType] = mapped_column(SAEnum(ReminderType), default=ReminderType.ONE_TIME, nullable=False)
+    type: Mapped[ReminderType] = mapped_column(
+        SAEnum(ReminderType, name="remindertype", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=ReminderType.ONE_TIME,
+        nullable=False,
+    )
     recurrence_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     next_send_date: Mapped[date] = mapped_column(Date, nullable=False)
     notify_days_before: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
-    status: Mapped[ReminderStatus] = mapped_column(SAEnum(ReminderStatus), default=ReminderStatus.ACTIVE, nullable=False)
+    status: Mapped[ReminderStatus] = mapped_column(
+        SAEnum(ReminderStatus, name="reminderstatus", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=ReminderStatus.ACTIVE,
+        nullable=False,
+    )
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
