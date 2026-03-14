@@ -10,6 +10,7 @@ class BusinessCreate(BaseModel):
     whatsapp_phone: str
     email: str | None = None
     password: str | None = None
+    plan: PlanType | None = None
 
 
 class BusinessUpdate(BaseModel):

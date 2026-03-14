@@ -6,6 +6,7 @@ from uuid import UUID
 from app.core.database import get_db
 from app.models.business import Business
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessResponse
+from app.models.business import PlanType
 
 router = APIRouter(prefix="/businesses", tags=["businesses"])
 
@@ -17,6 +18,7 @@ async def create_business(data: BusinessCreate, db: AsyncSession = Depends(get_d
         business_type=data.business_type,
         whatsapp_phone=data.whatsapp_phone,
         email=data.email,
+        plan=(data.plan or PlanType.FREE),
     )
     db.add(business)
     await db.flush()
