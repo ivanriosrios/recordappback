@@ -4,6 +4,8 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.core.database import get_db
+from app.core.deps import verify_business_access
+from app.models.business import Business
 from app.models.client import Client, ClientStatus, ChannelType
 from app.schemas.client import ClientCreate, ClientUpdate, ClientResponse
 
@@ -11,7 +13,7 @@ router = APIRouter(prefix="/businesses/{business_id}/clients", tags=["clients"])
 
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
-async def create_client(business_id: UUID, data: ClientCreate, db: AsyncSession = Depends(get_db)):
+async def create_client(business_id: UUID, data: ClientCreate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     # Normalizar enums a minúsculas para evitar errores de tipo en PostgreSQL
     if isinstance(data.preferred_channel, ChannelType):
         channel_enum = data.preferred_channel
@@ -45,6 +47,7 @@ async def list_clients(
     search: str | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Client).where(Client.business_id == business_id)
@@ -59,7 +62,7 @@ async def list_clients(
 
 
 @router.get("/{client_id}", response_model=ClientResponse)
-async def get_client(business_id: UUID, client_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_client(business_id: UUID, client_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Client).where(Client.id == client_id, Client.business_id == business_id)
     )
@@ -70,7 +73,7 @@ async def get_client(business_id: UUID, client_id: UUID, db: AsyncSession = Depe
 
 
 @router.patch("/{client_id}", response_model=ClientResponse)
-async def update_client(business_id: UUID, client_id: UUID, data: ClientUpdate, db: AsyncSession = Depends(get_db)):
+async def update_client(business_id: UUID, client_id: UUID, data: ClientUpdate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Client).where(Client.id == client_id, Client.business_id == business_id)
     )

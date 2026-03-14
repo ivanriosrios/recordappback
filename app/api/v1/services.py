@@ -4,6 +4,8 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.core.database import get_db
+from app.core.deps import verify_business_access
+from app.models.business import Business
 from app.models.service import Service
 from app.schemas.service import ServiceCreate, ServiceUpdate, ServiceResponse
 
@@ -11,7 +13,7 @@ router = APIRouter(prefix="/businesses/{business_id}/services", tags=["services"
 
 
 @router.post("/", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
-async def create_service(business_id: UUID, data: ServiceCreate, db: AsyncSession = Depends(get_db)):
+async def create_service(business_id: UUID, data: ServiceCreate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     service = Service(
         business_id=business_id,
         name=data.name,
@@ -26,7 +28,7 @@ async def create_service(business_id: UUID, data: ServiceCreate, db: AsyncSessio
 
 
 @router.get("/", response_model=list[ServiceResponse])
-async def list_services(business_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_services(business_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Service).where(Service.business_id == business_id, Service.is_active == True)
     )
@@ -34,7 +36,7 @@ async def list_services(business_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{service_id}", response_model=ServiceResponse)
-async def update_service(business_id: UUID, service_id: UUID, data: ServiceUpdate, db: AsyncSession = Depends(get_db)):
+async def update_service(business_id: UUID, service_id: UUID, data: ServiceUpdate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Service).where(Service.id == service_id, Service.business_id == business_id)
     )

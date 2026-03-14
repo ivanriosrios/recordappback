@@ -17,7 +17,10 @@ app = FastAPI(
 # CORS — permitir frontend PWA
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción: restringir al dominio del frontend
+    allow_origins=[
+        "https://recordapp-production.up.railway.app",
+        "http://localhost:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

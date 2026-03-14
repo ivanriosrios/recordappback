@@ -4,9 +4,9 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.core.database import get_db
-from app.models.business import Business
+from app.core.deps import get_current_business
+from app.models.business import Business, PlanType
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessResponse
-from app.models.business import PlanType
 
 router = APIRouter(prefix="/businesses", tags=["businesses"])
 
@@ -35,7 +35,7 @@ async def create_business(data: BusinessCreate, db: AsyncSession = Depends(get_d
 
 
 @router.get("/{business_id}", response_model=BusinessResponse)
-async def get_business(business_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_business(business_id: UUID, current: Business = Depends(get_current_business), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Business).where(Business.id == business_id))
     business = result.scalar_one_or_none()
     if not business:
@@ -44,7 +44,7 @@ async def get_business(business_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{business_id}", response_model=BusinessResponse)
-async def update_business(business_id: UUID, data: BusinessUpdate, db: AsyncSession = Depends(get_db)):
+async def update_business(business_id: UUID, data: BusinessUpdate, current: Business = Depends(get_current_business), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Business).where(Business.id == business_id))
     business = result.scalar_one_or_none()
     if not business:

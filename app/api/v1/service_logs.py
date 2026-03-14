@@ -5,6 +5,8 @@ from uuid import UUID
 from datetime import timedelta
 
 from app.core.database import get_db
+from app.core.deps import verify_business_access
+from app.models.business import Business
 from app.models.service_log import ServiceLog
 from app.models.service import Service
 from app.models.client import Client
@@ -15,7 +17,7 @@ router = APIRouter(prefix="/businesses/{business_id}/service-logs", tags=["servi
 
 
 @router.post("/", response_model=ServiceLogResponse, status_code=status.HTTP_201_CREATED)
-async def create_service_log(business_id: UUID, data: ServiceLogCreate, db: AsyncSession = Depends(get_db)):
+async def create_service_log(business_id: UUID, data: ServiceLogCreate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     # Validar cliente y servicio pertenecen al negocio
     svc_result = await db.execute(select(Service).where(Service.id == data.service_id, Service.business_id == business_id))
     service = svc_result.scalar_one_or_none()
@@ -57,7 +59,7 @@ async def create_service_log(business_id: UUID, data: ServiceLogCreate, db: Asyn
 
 
 @router.get("/", response_model=list[ServiceLogResponse])
-async def list_service_logs(business_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_service_logs(business_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ServiceLog).where(ServiceLog.business_id == business_id).order_by(ServiceLog.completed_at.desc())
     )

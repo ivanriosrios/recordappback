@@ -5,6 +5,8 @@ from uuid import UUID
 from datetime import date, timedelta
 
 from app.core.database import get_db
+from app.core.deps import verify_business_access
+from app.models.business import Business
 from app.models.reminder import Reminder, ReminderStatus
 from app.schemas.reminder import ReminderCreate, ReminderUpdate, ReminderResponse, ReminderSendNowRequest
 from app.tasks.send_reminder import send_reminder_task
@@ -13,7 +15,7 @@ router = APIRouter(prefix="/businesses/{business_id}/reminders", tags=["reminder
 
 
 @router.post("/", response_model=ReminderResponse, status_code=status.HTTP_201_CREATED)
-async def create_reminder(business_id: UUID, data: ReminderCreate, db: AsyncSession = Depends(get_db)):
+async def create_reminder(business_id: UUID, data: ReminderCreate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     reminder = Reminder(
         client_id=data.client_id,
         service_id=data.service_id,
@@ -36,6 +38,7 @@ async def list_reminders(
     upcoming_days: int | None = Query(None, ge=1, le=90),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
     # Join con Client para filtrar por business_id
@@ -59,7 +62,7 @@ async def list_reminders(
 
 
 @router.get("/{reminder_id}", response_model=ReminderResponse)
-async def get_reminder(business_id: UUID, reminder_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_reminder(business_id: UUID, reminder_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Reminder).where(Reminder.id == reminder_id))
     reminder = result.scalar_one_or_none()
     if not reminder:
@@ -68,7 +71,7 @@ async def get_reminder(business_id: UUID, reminder_id: UUID, db: AsyncSession = 
 
 
 @router.post("/{reminder_id}/send_now", status_code=status.HTTP_202_ACCEPTED)
-async def send_reminder_now(business_id: UUID, reminder_id: UUID, db: AsyncSession = Depends(get_db)):
+async def send_reminder_now(business_id: UUID, reminder_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     # Verifica que el reminder pertenezca al negocio
     from app.models.client import Client
 
@@ -84,7 +87,7 @@ async def send_reminder_now(business_id: UUID, reminder_id: UUID, db: AsyncSessi
 
 
 @router.post("/send_now", status_code=status.HTTP_202_ACCEPTED)
-async def send_bulk_now(business_id: UUID, payload: ReminderSendNowRequest, db: AsyncSession = Depends(get_db)):
+async def send_bulk_now(business_id: UUID, payload: ReminderSendNowRequest, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     from app.models.client import Client
 
     if not payload.reminder_ids:
@@ -106,7 +109,7 @@ async def send_bulk_now(business_id: UUID, payload: ReminderSendNowRequest, db: 
 
 
 @router.patch("/{reminder_id}", response_model=ReminderResponse)
-async def update_reminder(business_id: UUID, reminder_id: UUID, data: ReminderUpdate, db: AsyncSession = Depends(get_db)):
+async def update_reminder(business_id: UUID, reminder_id: UUID, data: ReminderUpdate, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Reminder).where(Reminder.id == reminder_id))
     reminder = result.scalar_one_or_none()
     if not reminder:
