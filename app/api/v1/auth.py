@@ -37,12 +37,20 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
             detail="Ya existe un negocio con este número de WhatsApp",
         )
 
+    try:
+        hashed = hash_password(data.password)
+    except ValueError as exc:  # bcrypt length limit
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
     business = Business(
         name=data.name,
         business_type=data.business_type,
         whatsapp_phone=data.whatsapp_phone,
         email=data.email,
-        password_hash=hash_password(data.password),
+        password_hash=hashed,
         plan=PlanType.FREE,
     )
     db.add(business)
