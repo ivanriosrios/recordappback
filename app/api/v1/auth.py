@@ -15,12 +15,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Registrar un nuevo negocio y devolver token."""
-    # Verificar email único
-    existing = await db.execute(select(Business).where(Business.email == data.email))
-    if existing.scalar_one_or_none():
+    # Validar unicidad de email y teléfono
+    existing_email = await db.execute(select(Business.id).where(Business.email == data.email))
+    if existing_email.scalars().first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ya existe un negocio con este email",
+        )
+
+    existing_phone = await db.execute(
+        select(Business.id).where(Business.whatsapp_phone == data.whatsapp_phone)
+    )
+    if existing_phone.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe un negocio con este número de WhatsApp",
         )
 
     business = Business(

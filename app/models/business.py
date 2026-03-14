@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum
+from sqlalchemy import String, Boolean, DateTime, Enum as SAEnum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -17,6 +17,10 @@ class PlanType(str, enum.Enum):
 
 class Business(Base):
     __tablename__ = "businesses"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_businesses_email"),
+        UniqueConstraint("whatsapp_phone", name="uq_businesses_whatsapp_phone"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
