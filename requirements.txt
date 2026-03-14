@@ -18,6 +18,8 @@ pydantic-settings==2.7.0
 python-dotenv==1.0.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+# Bcrypt 4.1+ elimina __about__; passlib 1.7.4 lo requiere
+bcrypt==4.0.1
 httpx==0.28.1
 
 # WhatsApp Cloud API
