@@ -84,16 +84,14 @@ def send_reminder_task(self, reminder_id: str):
             session.commit()
             return
 
-        # Renderizar mensaje
-        message = whatsapp.render_template(
-            template_body=template.body,
-            client_name=client.display_name,
-            service_name=service.name,
-            business_name=business.name,
+        # Enviar por WhatsApp usando template aprobado por Meta
+        # TODO: cuando tengas templates propios aprobados, reemplazar "hello_world"
+        #       y pasar components con las variables renderizadas
+        result = whatsapp.send_template(
+            to=client.phone,
+            template_name="hello_world",
+            language_code="en_US",
         )
-
-        # Enviar por WhatsApp
-        result = whatsapp.send_text(to=client.phone, body=message)
 
         # Registrar log
         log_status = LogStatus.SENT if result["success"] else LogStatus.FAILED

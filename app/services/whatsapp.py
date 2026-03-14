@@ -30,6 +30,45 @@ class WhatsAppService:
         """Normaliza teléfono al formato E.164 sin el '+'. WhatsApp requiere solo dígitos."""
         return phone.replace("+", "").replace(" ", "").replace("-", "")
 
+    def send_template(
+        self,
+        to: str,
+        template_name: str = "hello_world",
+        language_code: str = "en_US",
+        components: list | None = None,
+    ) -> dict:
+        """
+        Envía un mensaje usando un template aprobado por Meta.
+        Para business-initiated conversations, WhatsApp requiere templates aprobados.
+        """
+        phone = self._normalize_phone(to)
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code},
+            },
+        }
+        if components:
+            payload["template"]["components"] = components
+
+        try:
+            with httpx.Client(timeout=15) as client:
+                response = client.post(self._url(), headers=self.headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                wa_id = data.get("messages", [{}])[0].get("id", "")
+                logger.info(f"[WhatsApp] Template '{template_name}' enviado a {phone} — wa_id={wa_id}")
+                return {"success": True, "wa_message_id": wa_id, "raw": data}
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[WhatsApp] Error HTTP {e.response.status_code}: {e.response.text}")
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"[WhatsApp] Error inesperado: {e}")
+            return {"success": False, "error": str(e)}
+
     def send_text(self, to: str, body: str) -> dict:
         """
         Envía un mensaje de texto simple.
