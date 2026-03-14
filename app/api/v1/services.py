@@ -17,6 +17,7 @@ async def create_service(business_id: UUID, data: ServiceCreate, db: AsyncSessio
         name=data.name,
         description=data.description,
         ref_price=data.ref_price,
+        follow_up_days=data.follow_up_days,
     )
     db.add(service)
     await db.flush()

@@ -13,6 +13,7 @@ celery_app = Celery(
     backend=settings.REDIS_URL,
     include=[
         "app.tasks.send_reminder",
+        "app.tasks.send_follow_up",
         "app.tasks.scheduler",
     ],
 )
@@ -41,6 +42,11 @@ celery_app.conf.update(
         "check-retries": {
             "task": "app.tasks.scheduler.check_retries",
             "schedule": crontab(minute=0, hour="*/6"),
+        },
+        # Cada 4 horas revisa follow-ups pendientes por enviar
+        "check-pending-follow-ups": {
+            "task": "app.tasks.scheduler.check_pending_follow_ups",
+            "schedule": crontab(minute=0, hour="*/4"),
         },
     },
 

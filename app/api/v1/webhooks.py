@@ -118,6 +118,21 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
 
         if intent == "responded_yes":
             logger.info(f"[webhook] {client.display_name} confirmó interés → notificar negocio")
+
+        # Actualizar ServiceLog con calificación (bien/mal)
+        if intent in ("rated_good", "rated_bad"):
+            from app.models.service_log import ServiceLog
+            log = (
+                session.query(ServiceLog)
+                .filter(ServiceLog.client_id == client.id, ServiceLog.follow_up_sent == True)  # noqa: E712
+                .order_by(desc(ServiceLog.completed_at))
+                .first()
+            )
+            if log:
+                log.rating = 5 if intent == "rated_good" else 1
+                session.commit()
+                logger.info(f"[webhook] ServiceLog {log.id} rating → {log.rating}")
+
         if intent == "rated_bad":
             logger.warning(f"[webhook] {client.display_name} calificación MALA → seguimiento")
 

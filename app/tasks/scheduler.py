@@ -9,12 +9,14 @@ import logging
 from datetime import date, datetime, timedelta
 
 from app.tasks.celery_app import celery_app
+from app.tasks.send_follow_up import send_follow_up_task
 
 logger = logging.getLogger(__name__)
 
 # Días máximo de silencio antes de considerar un reintento como fallido definitivo
 MAX_RETRY_WINDOW_DAYS = 3
 MAX_RETRIES = 2
+FOLLOW_UP_CATCHUP_DAYS = 7
 
 
 def _get_session():
@@ -155,6 +157,52 @@ def check_retries():
 
     except Exception as exc:
         logger.exception(f"[scheduler] Error en check_retries: {exc}")
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.scheduler.check_pending_follow_ups")
+def check_pending_follow_ups():
+    """
+    Corre cada 4h. Busca ServiceLogs sin follow_up_sent cuyo servicio
+    tenga follow_up_days y cuya fecha ya venció, y los encola.
+    """
+    from app.models.service_log import ServiceLog
+    from app.models.service import Service
+
+    session = _get_session()
+    try:
+        now = datetime.utcnow()
+        logs = (
+            session.query(ServiceLog)
+            .join(Service, Service.id == ServiceLog.service_id)
+            .filter(Service.follow_up_days.isnot(None), ServiceLog.follow_up_sent == False)  # noqa: E712
+            .limit(300)
+            .all()
+        )
+
+        enqueued = 0
+        for log in logs:
+            follow_days = log.service.follow_up_days
+            if follow_days is None:
+                continue
+            due_at = log.completed_at + timedelta(days=follow_days)
+
+            if (now - log.completed_at).days > FOLLOW_UP_CATCHUP_DAYS:
+                log.follow_up_sent = True
+                continue
+
+            if now >= due_at:
+                send_follow_up_task.delay(str(log.id))
+                enqueued += 1
+
+        session.commit()
+        logger.info(f"[scheduler] check_pending_follow_ups — {enqueued} follow-ups encolados")
+        return {"enqueued": enqueued}
+    except Exception as exc:
+        session.rollback()
+        logger.exception(f"[scheduler] Error en check_pending_follow_ups: {exc}")
         raise
     finally:
         session.close()

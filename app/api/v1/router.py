@@ -6,6 +6,7 @@ from app.api.v1.services import router as services_router
 from app.api.v1.templates import router as templates_router
 from app.api.v1.reminders import router as reminders_router
 from app.api.v1.webhooks import router as webhooks_router
+from app.api.v1.service_logs import router as service_logs_router
 
 api_router = APIRouter()
 
@@ -15,3 +16,4 @@ api_router.include_router(services_router)
 api_router.include_router(templates_router)
 api_router.include_router(reminders_router)
 api_router.include_router(webhooks_router)
+api_router.include_router(service_logs_router)
