@@ -6,7 +6,8 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.models.reminder import Reminder, ReminderStatus
-from app.schemas.reminder import ReminderCreate, ReminderUpdate, ReminderResponse
+from app.schemas.reminder import ReminderCreate, ReminderUpdate, ReminderResponse, ReminderSendNowRequest
+from app.tasks.send_reminder import send_reminder_task
 
 router = APIRouter(prefix="/businesses/{business_id}/reminders", tags=["reminders"])
 
@@ -64,6 +65,44 @@ async def get_reminder(business_id: UUID, reminder_id: UUID, db: AsyncSession = 
     if not reminder:
         raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
     return reminder
+
+
+@router.post("/{reminder_id}/send_now", status_code=status.HTTP_202_ACCEPTED)
+async def send_reminder_now(business_id: UUID, reminder_id: UUID, db: AsyncSession = Depends(get_db)):
+    # Verifica que el reminder pertenezca al negocio
+    from app.models.client import Client
+
+    result = await db.execute(
+        select(Reminder).join(Client, Reminder.client_id == Client.id).where(Reminder.id == reminder_id, Client.business_id == business_id)
+    )
+    reminder = result.scalar_one_or_none()
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+
+    send_reminder_task.delay(str(reminder.id))
+    return {"message": "Envío encolado", "reminder_id": reminder.id}
+
+
+@router.post("/send_now", status_code=status.HTTP_202_ACCEPTED)
+async def send_bulk_now(business_id: UUID, payload: ReminderSendNowRequest, db: AsyncSession = Depends(get_db)):
+    from app.models.client import Client
+
+    if not payload.reminder_ids:
+        raise HTTPException(status_code=400, detail="Debe enviar reminder_ids")
+
+    result = await db.execute(
+        select(Reminder)
+        .join(Client, Reminder.client_id == Client.id)
+        .where(Reminder.id.in_(payload.reminder_ids), Client.business_id == business_id)
+    )
+    reminders = result.scalars().all()
+    if not reminders:
+        raise HTTPException(status_code=404, detail="Recordatorios no encontrados para este negocio")
+
+    for r in reminders:
+        send_reminder_task.delay(str(r.id))
+
+    return {"message": "Envíos encolados", "count": len(reminders)}
 
 
 @router.patch("/{reminder_id}", response_model=ReminderResponse)
