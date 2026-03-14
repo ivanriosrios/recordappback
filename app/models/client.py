@@ -36,9 +36,20 @@ class Client(Base):
     phone: Mapped[str] = mapped_column(String(15), nullable=False)
     email: Mapped[str | None] = mapped_column(String(100), nullable=True)
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    gender: Mapped[GenderType | None] = mapped_column(SAEnum(GenderType), nullable=True)
-    preferred_channel: Mapped[ChannelType] = mapped_column(SAEnum(ChannelType), default=ChannelType.WHATSAPP, nullable=False)
-    status: Mapped[ClientStatus] = mapped_column(SAEnum(ClientStatus), default=ClientStatus.ACTIVE, nullable=False)
+    gender: Mapped[GenderType | None] = mapped_column(
+        SAEnum(GenderType, name="gendertype", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        nullable=True,
+    )
+    preferred_channel: Mapped[ChannelType] = mapped_column(
+        SAEnum(ChannelType, name="channeltype", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=ChannelType.WHATSAPP,
+        nullable=False,
+    )
+    status: Mapped[ClientStatus] = mapped_column(
+        SAEnum(ClientStatus, name="clientstatus", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=ClientStatus.ACTIVE,
+        nullable=False,
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
