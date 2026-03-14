@@ -14,8 +14,8 @@ from app.tasks.send_follow_up import send_follow_up_task
 logger = logging.getLogger(__name__)
 
 # Días máximo de silencio antes de considerar un reintento como fallido definitivo
-MAX_RETRY_WINDOW_DAYS = 3
-MAX_RETRIES = 2
+MAX_RETRY_WINDOW_DAYS = 5
+MAX_RETRIES = 4
 FOLLOW_UP_CATCHUP_DAYS = 7
 
 
@@ -113,7 +113,8 @@ def check_retries():
             session.query(ReminderLog)
             .filter(
                 and_(
-                    ReminderLog.status == LogStatus.FAILED,
+                    # Usar value del enum para no pasar 'FAILED' en mayúsculas al enum de Postgres
+                    ReminderLog.status == LogStatus.FAILED.value,
                     ReminderLog.sent_at >= cutoff,
                 )
             )
