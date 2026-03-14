@@ -15,18 +15,18 @@ router = APIRouter(prefix="/businesses", tags=["businesses"])
 async def create_business(data: BusinessCreate, db: AsyncSession = Depends(get_db)):
     # Normalizar plan al valor de enum (minúsculas en DB)
     if isinstance(data.plan, PlanType):
-        plan_value = data.plan.value
+        plan_enum = data.plan
     elif data.plan:
-        plan_value = str(data.plan).lower()
+        plan_enum = PlanType(str(data.plan).lower()) if str(data.plan).lower() in {p.value for p in PlanType} else PlanType.FREE
     else:
-        plan_value = PlanType.FREE.value
+        plan_enum = PlanType.FREE
 
     business = Business(
         name=data.name,
         business_type=data.business_type,
         whatsapp_phone=data.whatsapp_phone,
         email=data.email,
-        plan=plan_value,
+        plan=plan_enum,
     )
     db.add(business)
     await db.flush()

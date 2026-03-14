@@ -24,7 +24,12 @@ class Business(Base):
     whatsapp_phone: Mapped[str] = mapped_column(String(15), nullable=False)
     email: Mapped[str | None] = mapped_column(String(100), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    plan: Mapped[PlanType] = mapped_column(SAEnum(PlanType), default=PlanType.FREE, nullable=False)
+    # Use enum values (lowercase) to match DB enum definition
+    plan: Mapped[PlanType] = mapped_column(
+        SAEnum(PlanType, name="plantype", values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        default=PlanType.FREE,
+        nullable=False,
+    )
     logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
