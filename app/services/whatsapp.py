@@ -28,7 +28,13 @@ class WhatsAppService:
 
     def _normalize_phone(self, phone: str) -> str:
         """Normaliza teléfono al formato E.164 sin el '+'. WhatsApp requiere solo dígitos."""
-        return phone.replace("+", "").replace(" ", "").replace("-", "")
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        # Elimina prefijo 00 si viene en ese formato
+        if digits.startswith("00"):
+            digits = digits[2:]
+        if len(digits) < 9:
+            raise ValueError("Número inválido: incluye indicativo de país (ej: 57...) y solo dígitos")
+        return digits
 
     def send_template(
         self,

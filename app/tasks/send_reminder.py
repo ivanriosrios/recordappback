@@ -87,11 +87,26 @@ def send_reminder_task(self, reminder_id: str):
         # Enviar por WhatsApp usando template aprobado por Meta
         # TODO: cuando tengas templates propios aprobados, reemplazar "hello_world"
         #       y pasar components con las variables renderizadas
-        result = whatsapp.send_template(
-            to=client.phone,
-            template_name="hello_world",
-            language_code="en_US",
-        )
+        try:
+            result = whatsapp.send_template(
+                to=client.phone,
+                template_name="hello_world",
+                language_code="en_US",
+            )
+        except ValueError as exc:
+            # Número inválido (sin indicativo, caracteres no numéricos, etc.)
+            log = ReminderLog(
+                reminder_id=reminder.id,
+                sent_at=datetime.utcnow(),
+                channel=LogChannel.WHATSAPP,
+                status=LogStatus.FAILED,
+                client_response=str(exc),
+            )
+            session.add(log)
+            reminder.status = ReminderStatus.DONE  # No reintentar hasta corregir el número
+            session.commit()
+            logger.error(f"[send_reminder] Número inválido: {exc}")
+            return
 
         # Registrar log
         log_status = LogStatus.SENT if result["success"] else LogStatus.FAILED
@@ -115,9 +130,15 @@ def send_reminder_task(self, reminder_id: str):
                 reminder.status = ReminderStatus.DONE
                 logger.info(f"[send_reminder] Reminder {reminder_id} completado")
         else:
-            logger.error(f"[send_reminder] Fallo al enviar: {result.get('error')}")
-            # Reintento automático
-            raise self.retry(exc=Exception(result.get("error", "Error WhatsApp")))
+            error_msg = result.get("error", "Error WhatsApp")
+            # Evitar reintentos si el destinatario no está en la allowlist de WhatsApp Cloud
+            if "Recipient phone number not in allowed list" in error_msg:
+                reminder.status = ReminderStatus.DONE
+                logger.error("[send_reminder] Destinatario no está en allowlist de WhatsApp; marcar DONE")
+            else:
+                logger.error(f"[send_reminder] Fallo al enviar: {error_msg}")
+                # Reintento automático
+                raise self.retry(exc=Exception(error_msg))
 
         session.commit()
         logger.info(f"[send_reminder] OK — reminder={reminder_id} status={log_status}")
