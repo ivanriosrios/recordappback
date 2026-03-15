@@ -142,7 +142,9 @@ def send_reminder_task(self, reminder_id: str):
                 f"Error: {error_msg}",
             )
             # Evitar reintentos si el destinatario no está en la allowlist de WhatsApp Cloud
-            if "Recipient phone number not in allowed list" in error_msg:
+            allowlist_marker = "recipient phone number not in allowed list"
+            code_marker = "131030"
+            if allowlist_marker in error_msg.lower() or code_marker in error_msg:
                 reminder.status = ReminderStatus.DONE
                 logger.error(
                     "[send_reminder] Destinatario no está en allowlist de WhatsApp; marcar DONE"

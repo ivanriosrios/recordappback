@@ -85,8 +85,13 @@ class WhatsAppService:
                 logger.info(f"[WhatsApp] Template '{template_name}' enviado a {phone} — wa_id={wa_id}")
                 return {"success": True, "wa_message_id": wa_id, "raw": data}
         except httpx.HTTPStatusError as e:
-            logger.error(f"[WhatsApp] Error HTTP {e.response.status_code}: {e.response.text}")
-            return {"success": False, "error": str(e)}
+            body_text = e.response.text
+            logger.error(f"[WhatsApp] Error HTTP {e.response.status_code}: {body_text}")
+            return {
+                "success": False,
+                "error": f"{str(e)} — {body_text}",
+                "status_code": e.response.status_code,
+            }
         except Exception as e:
             logger.error(f"[WhatsApp] Error inesperado: {e}")
             return {"success": False, "error": str(e)}

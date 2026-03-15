@@ -42,3 +42,18 @@ Documentación interactiva en: `http://localhost:8000/docs`
 2. Agregar PostgreSQL addon
 3. Configurar variables de entorno desde `.env.example`
 4. Deploy automático desde `main`
+
+## Mantenimiento (admin)
+
+- Limpiar resultados/tareas terminadas de Celery en Redis (script en `app/scripts/purge_celery_results.py`):
+
+	```bash
+	# Ver cuántas claves coinciden (sin borrar)
+	python -m app.scripts.purge_celery_results --dry-run
+
+	# Borrar claves celery-task-meta-* (usa REDIS_URL de settings)
+	python -m app.scripts.purge_celery_results
+
+	# Otro patrón
+	python -m app.scripts.purge_celery_results --pattern "celery-taskset-meta-*"
+	```
