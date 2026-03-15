@@ -1,20 +1,9 @@
 """Tarea Celery para enviar encuesta de follow-up por WhatsApp."""
 import logging
 from app.tasks.celery_app import celery_app
+from app.tasks.db_utils import get_sync_session
 
 logger = logging.getLogger(__name__)
-
-
-def _get_session():
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine)
-    return Session()
 
 
 @celery_app.task(name="app.tasks.send_follow_up")
@@ -23,7 +12,7 @@ def send_follow_up_task(service_log_id: str):
     from app.models.service_log import ServiceLog
     from app.services.whatsapp import whatsapp
 
-    session = _get_session()
+    session = get_sync_session()
     try:
         log = session.get(ServiceLog, service_log_id)
         if not log:

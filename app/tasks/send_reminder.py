@@ -3,26 +3,12 @@ Task Celery: enviar un recordatorio por WhatsApp y registrar el log.
 """
 import logging
 from datetime import datetime, timedelta, date
-from celery import shared_task
 
 from app.tasks.celery_app import celery_app
+from app.tasks.db_utils import get_sync_session
 from app.services.whatsapp import whatsapp
 
 logger = logging.getLogger(__name__)
-
-
-def _get_sync_session():
-    """Crea una sesión síncrona para usar dentro de Celery (no async)."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    # Convierte asyncpg URL a psycopg2 para uso síncrono en Celery
-    sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine)
-    return Session()
 
 
 @celery_app.task(
@@ -44,7 +30,7 @@ def send_reminder_task(self, reminder_id: str):
     6. Si recurrente: actualiza next_send_date
     7. Si one_time: marca status=done
     """
-    session = _get_sync_session()
+    session = get_sync_session()
 
     try:
         from app.models.reminder import Reminder, ReminderStatus, ReminderType

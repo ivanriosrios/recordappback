@@ -9,6 +9,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from app.tasks.celery_app import celery_app
+from app.tasks.db_utils import get_sync_session
 from app.tasks.send_follow_up import send_follow_up_task
 
 logger = logging.getLogger(__name__)
@@ -17,18 +18,6 @@ logger = logging.getLogger(__name__)
 MAX_RETRY_WINDOW_DAYS = 5
 MAX_RETRIES = 4
 FOLLOW_UP_CATCHUP_DAYS = 7
-
-
-def _get_session():
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine)
-    return Session()
 
 
 @celery_app.task(name="app.tasks.scheduler.check_and_enqueue_reminders")
@@ -46,7 +35,7 @@ def check_and_enqueue_reminders():
     from app.models.reminder import Reminder, ReminderStatus
     from sqlalchemy import and_
 
-    session = _get_session()
+    session = get_sync_session()
     try:
         today = date.today()
 
@@ -104,7 +93,7 @@ def check_retries():
     from app.models.reminder import Reminder, ReminderStatus
     from sqlalchemy import and_, func
 
-    session = _get_session()
+    session = get_sync_session()
     try:
         cutoff = datetime.utcnow() - timedelta(days=MAX_RETRY_WINDOW_DAYS)
 
@@ -173,7 +162,7 @@ def check_pending_follow_ups():
     from app.models.service_log import ServiceLog
     from app.models.service import Service
 
-    session = _get_session()
+    session = get_sync_session()
     try:
         now = datetime.utcnow()
         logs = (
