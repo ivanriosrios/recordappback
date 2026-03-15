@@ -16,15 +16,8 @@ router = APIRouter(prefix="/businesses/{business_id}/templates", tags=["template
 @router.get("", include_in_schema=True)
 @router.get("/", response_model=list[TemplateResponse], include_in_schema=False)
 async def list_templates(business_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Template).where(Template.business_id == business_id)
-    )
-    templates = result.scalars().all()
-
-    # Si no hay templates, seedear automáticamente (migración para negocios existentes)
-    if not templates:
-        templates = await seed_system_templates(db, business_id)
-
+    # Siempre pasar por el seeder para crear faltantes y actualizar existentes (language_code, status, body)
+    templates = await seed_system_templates(db, business_id)
     return templates
 
 
