@@ -27,7 +27,10 @@ class Notification(Base):
         nullable=False,
         index=True,
     )
-    type = Column(SAEnum(NotificationType, name="notificationtype"), nullable=False)
+    type = Column(
+        SAEnum(NotificationType, name="notificationtype", values_callable=lambda e: [x.value for x in e]),
+        nullable=False,
+    )
     title = Column(String(200), nullable=False)
     body = Column(Text, nullable=True)
     read = Column(Boolean, default=False, nullable=False)

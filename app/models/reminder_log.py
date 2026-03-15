@@ -32,8 +32,16 @@ class ReminderLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     reminder_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("reminders.id"), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    channel: Mapped[LogChannel] = mapped_column(SAEnum(LogChannel), default=LogChannel.WHATSAPP, nullable=False)
-    status: Mapped[LogStatus] = mapped_column(SAEnum(LogStatus), default=LogStatus.SENT, nullable=False)
+    channel: Mapped[LogChannel] = mapped_column(
+        SAEnum(LogChannel, values_callable=lambda e: [x.value for x in e]),
+        default=LogChannel.WHATSAPP,
+        nullable=False,
+    )
+    status: Mapped[LogStatus] = mapped_column(
+        SAEnum(LogStatus, values_callable=lambda e: [x.value for x in e]),
+        default=LogStatus.SENT,
+        nullable=False,
+    )
     client_response: Mapped[str | None] = mapped_column(Text, nullable=True)
     wa_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
