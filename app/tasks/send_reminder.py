@@ -74,11 +74,19 @@ def send_reminder_task(self, reminder_id: str):
         try:
             meta_name = template.meta_template_name or "recordatorio_cita"
             meta_lang = template.meta_language_code or "es_CO"
-            components = whatsapp.build_body_components(
-                client.display_name,
-                service.name,
-                business.name,
-            )
+
+            # Componentes según la plantilla Meta publicada
+            if meta_name == "encuesta_servicio":
+                # Hola {{1}}, hace poco te atendimos en {{2}} con el servicio {{3}}...
+                body_params = [client.display_name, business.name, service.name]
+            elif meta_name == "reactivacion_cliente":
+                # Hola {{1}}, hace tiempos que no te vemos {{2}}...
+                body_params = [client.display_name, business.name]
+            else:
+                # Por defecto: cliente, servicio, negocio
+                body_params = [client.display_name, service.name, business.name]
+
+            components = whatsapp.build_body_components(*body_params)
             result = whatsapp.send_template(
                 to=client.phone,
                 template_name=meta_name,
