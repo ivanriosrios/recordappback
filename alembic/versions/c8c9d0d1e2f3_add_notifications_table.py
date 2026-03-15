@@ -29,31 +29,34 @@ def upgrade() -> None:
         "reactivation_sent",
         name="notificationtype",
     )
-    notificationtype.create(op.get_bind())
+    notificationtype.create(op.get_bind(), checkfirst=True)
 
-    # Crear tabla notifications
-    op.create_table(
-        "notifications",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("business_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("type", notificationtype, nullable=False),
-        sa.Column("title", sa.String(200), nullable=False),
-        sa.Column("body", sa.Text(), nullable=True),
-        sa.Column("read", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column(
-            "created_at",
-            sa.DateTime(),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        sa.ForeignKeyConstraint(
-            ["business_id"],
-            ["businesses.id"],
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_notifications_business_id", "notifications", ["business_id"])
+    # Crear tabla notifications (si no existe)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "notifications" not in inspector.get_table_names():
+        op.create_table(
+            "notifications",
+            sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("business_id", postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("type", notificationtype, nullable=False),
+            sa.Column("title", sa.String(200), nullable=False),
+            sa.Column("body", sa.Text(), nullable=True),
+            sa.Column("read", sa.Boolean(), nullable=False, server_default="false"),
+            sa.Column(
+                "created_at",
+                sa.DateTime(),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.ForeignKeyConstraint(
+                ["business_id"],
+                ["businesses.id"],
+                ondelete="CASCADE",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index("ix_notifications_business_id", "notifications", ["business_id"])
 
 
 def downgrade() -> None:
