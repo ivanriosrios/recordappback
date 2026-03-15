@@ -36,6 +36,22 @@ class WhatsAppService:
             raise ValueError("Número inválido: incluye indicativo de país (ej: 57...) y solo dígitos")
         return digits
 
+    @staticmethod
+    def build_body_components(*values: str) -> list:
+        """
+        Construye el array `components` para un template con variables en el BODY.
+        Ejemplo: build_body_components("Juan", "Corte", "Barbería X")
+        → [{"type": "body", "parameters": [{"type": "text", "text": "Juan"}, ...]}]
+        """
+        if not values:
+            return []
+        return [
+            {
+                "type": "body",
+                "parameters": [{"type": "text", "text": v} for v in values],
+            }
+        ]
+
     def send_template(
         self,
         to: str,

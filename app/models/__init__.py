@@ -5,5 +5,16 @@ from app.models.reminder import Reminder
 from app.models.template import Template
 from app.models.reminder_log import ReminderLog
 from app.models.service_log import ServiceLog
+from app.models.notification import Notification, NotificationType
 
-__all__ = ["Business", "Client", "Service", "Reminder", "Template", "ReminderLog", "ServiceLog"]
+__all__ = [
+    "Business",
+    "Client",
+    "Service",
+    "Reminder",
+    "Template",
+    "ReminderLog",
+    "ServiceLog",
+    "Notification",
+    "NotificationType",
+]

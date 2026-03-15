@@ -9,6 +9,8 @@ from app.api.v1.reminders import router as reminders_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.service_logs import router as service_logs_router
 from app.api.v1.analytics import router as analytics_router
+from app.api.v1.notifications import router as notifications_router
+from app.api.v1.client_history import router as client_history_router
 
 api_router = APIRouter()
 
@@ -21,3 +23,5 @@ api_router.include_router(reminders_router)
 api_router.include_router(webhooks_router)
 api_router.include_router(service_logs_router)
 api_router.include_router(analytics_router)
+api_router.include_router(notifications_router)
+api_router.include_router(client_history_router)

@@ -57,3 +57,13 @@ async def update_business(business_id: UUID, data: BusinessUpdate, current: Busi
     await db.flush()
     await db.refresh(business)
     return business
+
+
+@router.post("/{business_id}/reactivation/send", status_code=status.HTTP_200_OK)
+async def send_reactivation(business_id: UUID, current: Business = Depends(get_current_business)):
+    """Triggerear reactivación de clientes inactivos manualmente."""
+    from app.tasks.scheduler import check_inactive_clients
+
+    # Encolar la tarea de reactivación
+    check_inactive_clients.delay()
+    return {"message": "Reactivación encolada", "queued": 1}

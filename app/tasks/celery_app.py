@@ -14,6 +14,8 @@ celery_app = Celery(
     include=[
         "app.tasks.send_reminder",
         "app.tasks.send_follow_up",
+        "app.tasks.send_birthday",
+        "app.tasks.send_reactivation",
         "app.tasks.scheduler",
     ],
 )
@@ -47,6 +49,16 @@ celery_app.conf.update(
         "check-pending-follow-ups": {
             "task": "app.tasks.scheduler.check_pending_follow_ups",
             "schedule": crontab(minute=0, hour="*/4"),
+        },
+        # Cada día a las 8am revisa cumpleaños
+        "check-birthdays": {
+            "task": "app.tasks.scheduler.check_birthdays",
+            "schedule": crontab(hour=8, minute=0),
+        },
+        # Cada lunes a las 10am revisa clientes inactivos
+        "check-inactive-clients": {
+            "task": "app.tasks.scheduler.check_inactive_clients",
+            "schedule": crontab(hour=10, minute=0, day_of_week=1),
         },
     },
 

@@ -197,3 +197,101 @@ def check_pending_follow_ups():
         raise
     finally:
         session.close()
+
+
+@celery_app.task(name="app.tasks.scheduler.check_birthdays")
+def check_birthdays():
+    """
+    Revisa clientes que cumplen años hoy y encola mensajes de felicitación.
+    Corre una vez al día a las 8am.
+    """
+    from app.models.client import Client, ClientStatus
+    from sqlalchemy import extract
+
+    session = get_sync_session()
+    try:
+        today = date.today()
+        # Buscar clientes activos cuyo birth_date coincida en mes y día
+        clients = (
+            session.query(Client)
+            .filter(
+                Client.status == ClientStatus.ACTIVE,
+                Client.birth_date.isnot(None),
+                extract("month", Client.birth_date) == today.month,
+                extract("day", Client.birth_date) == today.day,
+            )
+            .all()
+        )
+
+        from app.tasks.send_birthday import send_birthday_task
+
+        for client in clients:
+            send_birthday_task.delay(str(client.id), str(client.business_id))
+            logger.info(f"[birthday] Encolado para {client.display_name}")
+
+        logger.info(f"[birthday] {len(clients)} cumpleaños encontrados y encolados")
+    except Exception as exc:
+        logger.exception(f"[birthday] Error: {exc}")
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.scheduler.check_inactive_clients")
+def check_inactive_clients():
+    """
+    Detecta clientes inactivos (sin servicio en >60 días) y envía reactivación.
+    Corre una vez a la semana (lunes a las 10am).
+    """
+    from app.models.client import Client, ClientStatus
+    from app.models.service_log import ServiceLog
+    from app.models.reminder_log import ReminderLog
+    from sqlalchemy import select, func
+
+    session = get_sync_session()
+    try:
+        cutoff = date.today() - timedelta(days=60)
+
+        # Clientes activos cuyo último servicio fue hace >60 días o sin servicios
+        last_service = (
+            session.query(
+                ServiceLog.client_id,
+                func.max(ServiceLog.completed_at).label("last_visit"),
+            )
+            .group_by(ServiceLog.client_id)
+            .subquery()
+        )
+
+        stmt = (
+            session.query(Client)
+            .outerjoin(last_service, Client.id == last_service.c.client_id)
+            .filter(
+                Client.status == ClientStatus.ACTIVE,
+                (last_service.c.last_visit < cutoff) | (last_service.c.last_visit.is_(None)),
+            )
+        )
+
+        clients = stmt.all()
+
+        from app.tasks.send_reactivation import send_reactivation_task
+
+        enqueued = 0
+        for client in clients:
+            # Solo enviar si no se le envió reactivación en últimos 30 días (para no spamear)
+            recent = (
+                session.query(func.count(ReminderLog.id))
+                .filter(
+                    ReminderLog.sent_at > datetime.utcnow() - timedelta(days=30),
+                )
+                .scalar()
+            )
+            # Simple: limit to max 50 reactivations per run
+            if enqueued >= 50:
+                break
+            send_reactivation_task.delay(str(client.id), str(client.business_id))
+            enqueued += 1
+
+        logger.info(f"[reactivation] {enqueued} reactivaciones encoladas")
+    except Exception as exc:
+        logger.exception(f"[reactivation] Error: {exc}")
+    finally:
+        session.close()

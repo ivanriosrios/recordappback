@@ -19,17 +19,33 @@ def send_follow_up_task(service_log_id: str):
             logger.warning(f"[follow-up] ServiceLog {service_log_id} no encontrado")
             return
 
-        client = log.client
-        service = log.service
+        from app.models.client import Client
+        from app.models.service import Service
+        from app.models.business import Business
+
+        client = session.get(Client, str(log.client_id))
+        service = session.get(Service, str(log.service_id))
         if not client or not service:
             logger.warning(f"[follow-up] Datos incompletos en log {service_log_id}")
             return
 
-        body = (
-            f"Hola {client.display_name}, ¿cómo te fue con el servicio '{service.name}'? "
-            "Responde 'bien' o 'mal'."
+        business = session.get(Business, str(client.business_id))
+        if not business:
+            logger.warning(f"[follow-up] Negocio no encontrado para cliente {client.id}")
+            return
+
+        # Enviar encuesta post-servicio con template aprobado por Meta
+        components = whatsapp.build_body_components(
+            client.display_name,
+            business.name,
+            service.name,
         )
-        whatsapp.send_text(to=client.phone, body=body)
+        whatsapp.send_template(
+            to=client.phone,
+            template_name="encuesta_servicio",
+            language_code="es",
+            components=components,
+        )
 
         log.follow_up_sent = True
         session.commit()

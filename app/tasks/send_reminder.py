@@ -71,13 +71,17 @@ def send_reminder_task(self, reminder_id: str):
             return
 
         # Enviar por WhatsApp usando template aprobado por Meta
-        # TODO: cuando tengas templates propios aprobados, reemplazar "hello_world"
-        #       y pasar components con las variables renderizadas
         try:
+            components = whatsapp.build_body_components(
+                client.display_name,
+                service.name,
+                business.name,
+            )
             result = whatsapp.send_template(
                 to=client.phone,
-                template_name="hello_world",
-                language_code="en_US",
+                template_name="recordatorio_cita",
+                language_code="es",
+                components=components,
             )
         except ValueError as exc:
             # Número inválido (sin indicativo, caracteres no numéricos, etc.)
@@ -105,22 +109,44 @@ def send_reminder_task(self, reminder_id: str):
         )
         session.add(log)
 
+        # === Crear notificación in-app ===
+        from app.services.notifications import create_notification_sync
+        from app.models.notification import NotificationType
+
         if result["success"]:
+            create_notification_sync(
+                session,
+                business.id,
+                NotificationType.REMINDER_SENT,
+                f"Recordatorio enviado a {client.display_name}",
+                f"Mensaje enviado exitosamente a {client.phone}",
+            )
             reminder.last_sent_at = datetime.utcnow()
 
             if reminder.type == ReminderType.RECURRING and reminder.recurrence_days:
                 # Calcular próxima fecha
-                reminder.next_send_date = date.today() + timedelta(days=reminder.recurrence_days)
+                reminder.next_send_date = date.today() + timedelta(
+                    days=reminder.recurrence_days
+                )
                 logger.info(f"[send_reminder] Próximo envío: {reminder.next_send_date}")
             else:
                 reminder.status = ReminderStatus.DONE
                 logger.info(f"[send_reminder] Reminder {reminder_id} completado")
         else:
             error_msg = result.get("error", "Error WhatsApp")
+            create_notification_sync(
+                session,
+                business.id,
+                NotificationType.REMINDER_FAILED,
+                f"Fallo al enviar recordatorio a {client.display_name}",
+                f"Error: {error_msg}",
+            )
             # Evitar reintentos si el destinatario no está en la allowlist de WhatsApp Cloud
             if "Recipient phone number not in allowed list" in error_msg:
                 reminder.status = ReminderStatus.DONE
-                logger.error("[send_reminder] Destinatario no está en allowlist de WhatsApp; marcar DONE")
+                logger.error(
+                    "[send_reminder] Destinatario no está en allowlist de WhatsApp; marcar DONE"
+                )
             else:
                 logger.error(f"[send_reminder] Fallo al enviar: {error_msg}")
                 # Reintento automático

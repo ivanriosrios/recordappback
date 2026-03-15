@@ -6,10 +6,8 @@ POST /webhooks/whatsapp — recibe eventos (mensajes, status updates)
 """
 import logging
 from fastapi import APIRouter, Request, Query, HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from app.core.config import get_settings
+from app.tasks.db_utils import get_sync_session
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 settings = get_settings()
@@ -30,10 +28,7 @@ def _normalize(text: str) -> str:
 
 
 def _get_session():
-    sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine)
-    return Session()
+    return get_sync_session()
 
 
 def _classify_response(text: str) -> str:
@@ -76,13 +71,33 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
 
         # Opt-out
         if intent == "optout":
+            from app.services.notifications import create_notification_sync
+
             client.status = ClientStatus.OPTOUT
+            # Crear notificación antes de commit
+            create_notification_sync(
+                session,
+                client.business_id,
+                "client_optout",
+                f"{client.display_name} se dio de baja",
+                f"El cliente {client.display_name} ({client.phone}) ha solicitado no recibir más mensajes.",
+            )
             session.commit()
             logger.info(f"[webhook] Cliente {client.id} → OPTOUT")
             from app.services.whatsapp import whatsapp
-            whatsapp.send_text(
+            from app.models.business import Business
+
+            business = session.get(Business, str(client.business_id))
+            business_name = business.name if business else "nuestro negocio"
+            components = whatsapp.build_body_components(
+                client.display_name,
+                business_name,
+            )
+            whatsapp.send_template(
                 to=client.phone,
-                body=f"Entendido {client.display_name}, no te enviaremos más mensajes."
+                template_name="confirmacion_optout",
+                language_code="es",
+                components=components,
             )
             return
 
@@ -117,11 +132,24 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             logger.info(f"[webhook] Log {last_log.id} → {new_status}")
 
         if intent == "responded_yes":
-            logger.info(f"[webhook] {client.display_name} confirmó interés → notificar negocio")
+            from app.services.notifications import create_notification_sync
+
+            create_notification_sync(
+                session,
+                client.business_id,
+                "client_responded",
+                f"{client.display_name} respondió SI",
+                f"El cliente confirmó interés en tu servicio.",
+            )
+            logger.info(
+                f"[webhook] {client.display_name} confirmó interés → notificar negocio"
+            )
 
         # Actualizar ServiceLog con calificación (bien/mal)
         if intent in ("rated_good", "rated_bad"):
             from app.models.service_log import ServiceLog
+            from app.services.notifications import create_notification_sync
+
             log = (
                 session.query(ServiceLog)
                 .filter(ServiceLog.client_id == client.id, ServiceLog.follow_up_sent == True)  # noqa: E712
@@ -130,6 +158,14 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             )
             if log:
                 log.rating = 5 if intent == "rated_good" else 1
+                rating_text = "bien" if intent == "rated_good" else "mal"
+                create_notification_sync(
+                    session,
+                    client.business_id,
+                    "follow_up_rated",
+                    f"{client.display_name} calificó el servicio: {rating_text}",
+                    f"El cliente ha respondido la encuesta post-servicio.",
+                )
                 session.commit()
                 logger.info(f"[webhook] ServiceLog {log.id} rating → {log.rating}")
 
