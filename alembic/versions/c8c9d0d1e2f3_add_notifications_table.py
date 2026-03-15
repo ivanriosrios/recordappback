@@ -18,48 +18,44 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Crear enum para NotificationType
-    notificationtype = postgresql.ENUM(
-        "reminder_sent",
-        "reminder_failed",
-        "client_responded",
-        "client_optout",
-        "follow_up_rated",
-        "birthday_sent",
-        "reactivation_sent",
-        name="notificationtype",
-    )
-    notificationtype.create(op.get_bind(), checkfirst=True)
+    # Crear enum con IF NOT EXISTS (compatible con asyncpg)
+    op.execute(sa.text("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'notificationtype') THEN
+                CREATE TYPE notificationtype AS ENUM (
+                    'reminder_sent',
+                    'reminder_failed',
+                    'client_responded',
+                    'client_optout',
+                    'follow_up_rated',
+                    'birthday_sent',
+                    'reactivation_sent'
+                );
+            END IF;
+        END$$;
+    """))
 
-    # Crear tabla notifications (si no existe)
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    if "notifications" not in inspector.get_table_names():
-        op.create_table(
-            "notifications",
-            sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-            sa.Column("business_id", postgresql.UUID(as_uuid=True), nullable=False),
-            sa.Column("type", notificationtype, nullable=False),
-            sa.Column("title", sa.String(200), nullable=False),
-            sa.Column("body", sa.Text(), nullable=True),
-            sa.Column("read", sa.Boolean(), nullable=False, server_default="false"),
-            sa.Column(
-                "created_at",
-                sa.DateTime(),
-                nullable=False,
-                server_default=sa.func.now(),
-            ),
-            sa.ForeignKeyConstraint(
-                ["business_id"],
-                ["businesses.id"],
-                ondelete="CASCADE",
-            ),
-            sa.PrimaryKeyConstraint("id"),
-        )
-        op.create_index("ix_notifications_business_id", "notifications", ["business_id"])
+    # Crear tabla notifications si no existe
+    op.execute(sa.text("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id UUID NOT NULL PRIMARY KEY,
+            business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+            type notificationtype NOT NULL,
+            title VARCHAR(200) NOT NULL,
+            body TEXT,
+            read BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMP NOT NULL DEFAULT now()
+        );
+    """))
+
+    op.execute(sa.text("""
+        CREATE INDEX IF NOT EXISTS ix_notifications_business_id
+        ON notifications (business_id);
+    """))
 
 
 def downgrade() -> None:
-    op.drop_index("ix_notifications_business_id", table_name="notifications")
-    op.drop_table("notifications")
-    sa.Enum(name="notificationtype").drop(op.get_bind())
+    op.execute(sa.text("DROP INDEX IF EXISTS ix_notifications_business_id;"))
+    op.execute(sa.text("DROP TABLE IF EXISTS notifications;"))
+    op.execute(sa.text("DROP TYPE IF EXISTS notificationtype;"))
