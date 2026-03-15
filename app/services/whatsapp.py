@@ -13,7 +13,7 @@ settings = get_settings()
 class WhatsAppService:
     """Cliente para WhatsApp Cloud API."""
 
-    BASE_URL = "https://graph.facebook.com/v21.0"
+    BASE_URL = "https://graph.facebook.com/v22.0"
 
     def __init__(self):
         self.phone_number_id = settings.WHATSAPP_PHONE_NUMBER_ID

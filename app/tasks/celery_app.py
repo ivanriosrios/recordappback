@@ -21,6 +21,11 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    # Conexión al broker — resiliente a reinicios de Redis
+    broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_connection_max_retries=10,
+
     # Serialización
     task_serializer="json",
     accept_content=["json"],
