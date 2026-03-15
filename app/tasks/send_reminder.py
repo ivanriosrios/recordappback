@@ -148,16 +148,24 @@ def send_reminder_task(self, reminder_id: str):
             code_marker = "131030"
             template_missing_marker = "template name does not exist"
             template_code_marker = "132001"
+            params_mismatch_marker = "number of parameters does not match"
+            params_code_marker = "132000"
             if (
                 allowlist_marker in error_msg.lower()
                 or code_marker in error_msg
                 or template_missing_marker in error_msg.lower()
                 or template_code_marker in error_msg
+                or params_mismatch_marker in error_msg.lower()
+                or params_code_marker in error_msg
             ):
                 reminder.status = ReminderStatus.DONE
                 if template_missing_marker in error_msg.lower() or template_code_marker in error_msg:
                     logger.error(
                         "[send_reminder] Template no existe/aprobado; marcar DONE y no reintentar"
+                    )
+                elif params_mismatch_marker in error_msg.lower() or params_code_marker in error_msg:
+                    logger.error(
+                        "[send_reminder] Template tiene distinto número de parámetros; marcar DONE y revisar variables/components"
                     )
                 else:
                     logger.error(
