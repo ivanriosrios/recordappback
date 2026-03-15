@@ -16,12 +16,12 @@ depends_on = None
 def upgrade() -> None:
     # 1. Crear enum templatestatus si no existe
     op.execute(sa.text("""
-        DO $
+        DO $$
         BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'templatestatus') THEN
                 CREATE TYPE templatestatus AS ENUM ('approved', 'pending', 'rejected');
             END IF;
-        END$;
+        END$$;
     """))
 
     # 2. Agregar columnas nuevas
