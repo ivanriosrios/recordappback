@@ -144,11 +144,23 @@ def send_reminder_task(self, reminder_id: str):
             # Evitar reintentos si el destinatario no está en la allowlist de WhatsApp Cloud
             allowlist_marker = "recipient phone number not in allowed list"
             code_marker = "131030"
-            if allowlist_marker in error_msg.lower() or code_marker in error_msg:
+            template_missing_marker = "template name does not exist"
+            template_code_marker = "132001"
+            if (
+                allowlist_marker in error_msg.lower()
+                or code_marker in error_msg
+                or template_missing_marker in error_msg.lower()
+                or template_code_marker in error_msg
+            ):
                 reminder.status = ReminderStatus.DONE
-                logger.error(
-                    "[send_reminder] Destinatario no está en allowlist de WhatsApp; marcar DONE"
-                )
+                if template_missing_marker in error_msg.lower() or template_code_marker in error_msg:
+                    logger.error(
+                        "[send_reminder] Template no existe/aprobado; marcar DONE y no reintentar"
+                    )
+                else:
+                    logger.error(
+                        "[send_reminder] Destinatario no está en allowlist de WhatsApp; marcar DONE"
+                    )
             else:
                 logger.error(f"[send_reminder] Fallo al enviar: {error_msg}")
                 # Reintento automático
