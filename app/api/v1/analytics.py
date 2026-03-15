@@ -15,7 +15,8 @@ from app.models.service_log import ServiceLog
 router = APIRouter(prefix="/businesses/{business_id}/analytics", tags=["analytics"])
 
 
-@router.get("/")
+@router.get("", include_in_schema=True)
+@router.get("/", include_in_schema=False)
 async def get_business_analytics(
     business_id: UUID,
     _biz: Business = Depends(verify_business_access),
