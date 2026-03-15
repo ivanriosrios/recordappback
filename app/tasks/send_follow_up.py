@@ -1,5 +1,6 @@
 """Tarea Celery para enviar encuesta de follow-up por WhatsApp."""
 import logging
+from sqlalchemy import select
 from app.tasks.celery_app import celery_app
 from app.tasks.db_utils import get_sync_session
 
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 def send_follow_up_task(service_log_id: str):
     """Envía una encuesta corta al cliente y marca follow_up_sent."""
     from app.models.service_log import ServiceLog
+    from app.models.template import Template
     from app.services.whatsapp import whatsapp
 
     session = get_sync_session()
@@ -34,7 +36,19 @@ def send_follow_up_task(service_log_id: str):
             logger.warning(f"[follow-up] Negocio no encontrado para cliente {client.id}")
             return
 
-        # Enviar encuesta post-servicio con template aprobado por Meta
+        # Buscar template del sistema para follow-up
+        tpl = session.execute(
+            select(Template).where(
+                Template.business_id == business.id,
+                Template.meta_template_name == "encuesta_servicio",
+                Template.is_system.is_(True),
+            )
+        ).scalar_one_or_none()
+
+        meta_name = tpl.meta_template_name if tpl else "encuesta_servicio"
+        meta_lang = tpl.meta_language_code if tpl else "es"
+
+        # Enviar encuesta post-servicio
         components = whatsapp.build_body_components(
             client.display_name,
             business.name,
@@ -42,8 +56,8 @@ def send_follow_up_task(service_log_id: str):
         )
         whatsapp.send_template(
             to=client.phone,
-            template_name="encuesta_servicio",
-            language_code="es",
+            template_name=meta_name,
+            language_code=meta_lang,
             components=components,
         )
 

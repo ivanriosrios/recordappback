@@ -2,6 +2,7 @@
 import logging
 from datetime import datetime
 
+from sqlalchemy import select
 from app.tasks.celery_app import celery_app
 from app.tasks.db_utils import get_sync_session
 from app.services.whatsapp import whatsapp
@@ -23,6 +24,7 @@ def send_reactivation_task(self, client_id: str, business_id: str):
     try:
         from app.models.client import Client, ClientStatus
         from app.models.business import Business
+        from app.models.template import Template
         from app.models.reminder_log import ReminderLog, LogStatus, LogChannel
 
         client = session.get(Client, client_id)
@@ -37,6 +39,18 @@ def send_reactivation_task(self, client_id: str, business_id: str):
             logger.info(f"[reactivation] Cliente {client.id} en opt-out, skip")
             return
 
+        # Buscar template del sistema
+        tpl = session.execute(
+            select(Template).where(
+                Template.business_id == business.id,
+                Template.meta_template_name == "reactivacion_cliente",
+                Template.is_system.is_(True),
+            )
+        ).scalar_one_or_none()
+
+        meta_name = tpl.meta_template_name if tpl else "reactivacion_cliente"
+        meta_lang = tpl.meta_language_code if tpl else "es"
+
         # Enviar usando template aprobado por Meta
         components = whatsapp.build_body_components(
             client.display_name,
@@ -44,8 +58,8 @@ def send_reactivation_task(self, client_id: str, business_id: str):
         )
         result = whatsapp.send_template(
             to=client.phone,
-            template_name="reactivacion_cliente",
-            language_code="es",
+            template_name=meta_name,
+            language_code=meta_lang,
             components=components,
         )
 
@@ -58,8 +72,6 @@ def send_reactivation_task(self, client_id: str, business_id: str):
         session.add(log)
 
         if result["success"]:
-            # Marcar cliente como activo de nuevo (no cambiar estado, ya que sigue siendo inactivo)
-            # Solo registramos el envío del mensaje
             logger.info(f"[reactivation] Enviado a {client.display_name}")
         else:
             logger.error(f"[reactivation] Fallo: {result.get('error')}")

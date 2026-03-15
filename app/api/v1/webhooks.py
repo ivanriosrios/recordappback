@@ -86,17 +86,32 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             logger.info(f"[webhook] Cliente {client.id} → OPTOUT")
             from app.services.whatsapp import whatsapp
             from app.models.business import Business
+            from app.models.template import Template
+            from sqlalchemy import select as sa_select
 
             business = session.get(Business, str(client.business_id))
             business_name = business.name if business else "nuestro negocio"
+
+            # Buscar template del sistema para opt-out
+            tpl = session.execute(
+                sa_select(Template).where(
+                    Template.business_id == client.business_id,
+                    Template.meta_template_name == "confirmacion_optout",
+                    Template.is_system.is_(True),
+                )
+            ).scalar_one_or_none()
+
+            meta_name = tpl.meta_template_name if tpl else "confirmacion_optout"
+            meta_lang = tpl.meta_language_code if tpl else "es"
+
             components = whatsapp.build_body_components(
                 client.display_name,
                 business_name,
             )
             whatsapp.send_template(
                 to=client.phone,
-                template_name="confirmacion_optout",
-                language_code="es",
+                template_name=meta_name,
+                language_code=meta_lang,
                 components=components,
             )
             return

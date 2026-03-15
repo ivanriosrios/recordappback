@@ -1,13 +1,16 @@
 from pydantic import BaseModel, field_validator
 from uuid import UUID
-from app.models.template import TemplateType, TemplateChannel
+from app.models.template import TemplateType, TemplateChannel, TemplateStatus
 
 
 class TemplateCreate(BaseModel):
+    """Solo para uso interno / admin. Los usuarios no crean templates."""
     name: str
     body: str
     type: TemplateType = TemplateType.REMINDER
     channel: TemplateChannel = TemplateChannel.WHATSAPP
+    meta_template_name: str | None = None
+    meta_language_code: str = "es"
 
     @field_validator("type", mode="before")
     @classmethod
@@ -56,5 +59,9 @@ class TemplateResponse(BaseModel):
     body: str
     type: TemplateType
     channel: TemplateChannel
+    meta_template_name: str | None = None
+    meta_language_code: str = "es"
+    status: TemplateStatus = TemplateStatus.APPROVED
+    is_system: bool = False
 
     model_config = {"from_attributes": True}

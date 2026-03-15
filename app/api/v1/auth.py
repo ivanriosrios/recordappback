@@ -8,6 +8,7 @@ from app.core.deps import get_current_business
 from app.models.business import Business, PlanType
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
 from app.schemas.business import BusinessResponse
+from app.services.template_seeder import seed_system_templates
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -56,6 +57,9 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     db.add(business)
     await db.flush()
     await db.refresh(business)
+
+    # Seedear plantillas del sistema para el nuevo negocio
+    await seed_system_templates(db, business.id)
 
     token = create_access_token(str(business.id))
     return TokenResponse(

@@ -2,6 +2,7 @@
 import logging
 from datetime import datetime
 
+from sqlalchemy import select
 from app.tasks.celery_app import celery_app
 from app.tasks.db_utils import get_sync_session
 from app.services.whatsapp import whatsapp
@@ -18,14 +19,14 @@ logger = logging.getLogger(__name__)
 def send_birthday_task(self, client_id: str, business_id: str):
     """
     Envía felicitación de cumpleaños por WhatsApp.
-    Busca el template tipo BIRTHDAY del negocio, o usa un default.
+    Usa el template del sistema mapeado a Meta.
     """
     session = get_sync_session()
     try:
         from app.models.client import Client, ClientStatus
         from app.models.business import Business
+        from app.models.template import Template
         from app.models.reminder_log import ReminderLog, LogStatus, LogChannel
-        from sqlalchemy import select
 
         client = session.get(Client, client_id)
         business = session.get(Business, business_id)
@@ -39,6 +40,18 @@ def send_birthday_task(self, client_id: str, business_id: str):
             logger.info(f"[birthday] Cliente {client.id} en opt-out, skip")
             return
 
+        # Buscar template del sistema
+        tpl = session.execute(
+            select(Template).where(
+                Template.business_id == business.id,
+                Template.meta_template_name == "feliz_cumpleanos",
+                Template.is_system.is_(True),
+            )
+        ).scalar_one_or_none()
+
+        meta_name = tpl.meta_template_name if tpl else "feliz_cumpleanos"
+        meta_lang = tpl.meta_language_code if tpl else "es"
+
         # Enviar usando template aprobado por Meta
         components = whatsapp.build_body_components(
             client.display_name,
@@ -46,8 +59,8 @@ def send_birthday_task(self, client_id: str, business_id: str):
         )
         result = whatsapp.send_template(
             to=client.phone,
-            template_name="feliz_cumpleanos",
-            language_code="es",
+            template_name=meta_name,
+            language_code=meta_lang,
             components=components,
         )
 

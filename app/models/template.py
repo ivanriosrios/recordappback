@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import String, Text, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Text, ForeignKey, Boolean, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -21,6 +21,12 @@ class TemplateChannel(str, enum.Enum):
     EMAIL = "email"
 
 
+class TemplateStatus(str, enum.Enum):
+    APPROVED = "approved"
+    PENDING = "pending"
+    REJECTED = "rejected"
+
+
 class Template(Base):
     __tablename__ = "templates"
 
@@ -39,9 +45,19 @@ class Template(Base):
         nullable=False,
     )
 
+    # --- Nuevos campos: mapeo a Meta WhatsApp ---
+    meta_template_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    meta_language_code: Mapped[str] = mapped_column(String(10), default="es", nullable=False)
+    status: Mapped[TemplateStatus] = mapped_column(
+        SAEnum(TemplateStatus, name="templatestatus", values_callable=lambda enum_cls: [e.value for e in enum_cls], create_type=False),
+        default=TemplateStatus.APPROVED,
+        nullable=False,
+    )
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Relationships
     business: Mapped["Business"] = relationship("Business", back_populates="templates")
     reminders: Mapped[list["Reminder"]] = relationship("Reminder", back_populates="template")
 
     def __repr__(self) -> str:
-        return f"<Template {self.name}>"
+        return f"<Template {self.name} meta={self.meta_template_name}>"

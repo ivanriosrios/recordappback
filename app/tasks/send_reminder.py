@@ -72,6 +72,8 @@ def send_reminder_task(self, reminder_id: str):
 
         # Enviar por WhatsApp usando template aprobado por Meta
         try:
+            meta_name = template.meta_template_name or "recordatorio_cita"
+            meta_lang = template.meta_language_code or "es"
             components = whatsapp.build_body_components(
                 client.display_name,
                 service.name,
@@ -79,8 +81,8 @@ def send_reminder_task(self, reminder_id: str):
             )
             result = whatsapp.send_template(
                 to=client.phone,
-                template_name="recordatorio_cita",
-                language_code="es",
+                template_name=meta_name,
+                language_code=meta_lang,
                 components=components,
             )
         except ValueError as exc:
