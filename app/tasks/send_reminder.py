@@ -73,7 +73,7 @@ def send_reminder_task(self, reminder_id: str):
         # Enviar por WhatsApp usando template aprobado por Meta
         try:
             meta_name = template.meta_template_name or "recordatorio_cita"
-            meta_lang = template.meta_language_code or "es"
+            meta_lang = template.meta_language_code or "es_CO"
             components = whatsapp.build_body_components(
                 client.display_name,
                 service.name,

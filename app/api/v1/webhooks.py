@@ -102,7 +102,7 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             ).scalar_one_or_none()
 
             meta_name = tpl.meta_template_name if tpl else "confirmacion_optout"
-            meta_lang = tpl.meta_language_code if tpl else "es"
+            meta_lang = tpl.meta_language_code if tpl else "es_CO"
 
             components = whatsapp.build_body_components(
                 client.display_name,

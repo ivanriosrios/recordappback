@@ -46,7 +46,7 @@ def send_follow_up_task(service_log_id: str):
         ).scalar_one_or_none()
 
         meta_name = tpl.meta_template_name if tpl else "encuesta_servicio"
-        meta_lang = tpl.meta_language_code if tpl else "es"
+        meta_lang = tpl.meta_language_code if tpl else "es_CO"
 
         # Enviar encuesta post-servicio
         components = whatsapp.build_body_components(

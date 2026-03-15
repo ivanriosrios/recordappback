@@ -50,7 +50,7 @@ def send_birthday_task(self, client_id: str, business_id: str):
         ).scalar_one_or_none()
 
         meta_name = tpl.meta_template_name if tpl else "feliz_cumpleanos"
-        meta_lang = tpl.meta_language_code if tpl else "es"
+        meta_lang = tpl.meta_language_code if tpl else "es_CO"
 
         # Enviar usando template aprobado por Meta
         components = whatsapp.build_body_components(
