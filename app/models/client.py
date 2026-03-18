@@ -51,6 +51,8 @@ class Client(Base):
         nullable=False,
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # KOS-54: info adicional libre (alergias, preferencias, talla, etc.)
+    extra_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

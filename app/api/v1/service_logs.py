@@ -10,7 +10,7 @@ from app.models.business import Business
 from app.models.service_log import ServiceLog
 from app.models.service import Service
 from app.models.client import Client
-from app.schemas.service_log import ServiceLogCreate, ServiceLogResponse
+from app.schemas.service_log import ServiceLogCreate, ServiceLogComplete, ServiceLogResponse
 from app.tasks.send_follow_up import send_follow_up_task
 
 router = APIRouter(prefix="/businesses/{business_id}/service-logs", tags=["service-logs"])
@@ -87,3 +87,56 @@ async def list_service_logs(business_id: UUID, _biz: Business = Depends(verify_b
         )
         for log in logs
     ]
+
+
+@router.post("/{log_id}/complete", response_model=ServiceLogResponse)
+async def complete_service_log(
+    business_id: UUID,
+    log_id: UUID,
+    data: ServiceLogComplete,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cierra un servicio: registra precio cobrado, método de pago y notas.
+    Si send_summary=True, envía un resumen/comprobante por WhatsApp al cliente.
+    """
+    result = await db.execute(
+        select(ServiceLog).where(
+            ServiceLog.id == log_id,
+            ServiceLog.business_id == business_id,
+        )
+    )
+    log = result.scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Registro de servicio no encontrado")
+
+    # Actualizar campos
+    if data.price_charged is not None:
+        log.price_charged = data.price_charged
+    if data.payment_method is not None:
+        log.payment_method = data.payment_method
+    if data.service_notes is not None:
+        log.service_notes = data.service_notes
+    if data.notes is not None:
+        log.notes = data.notes
+
+    await db.flush()
+    await db.refresh(log)
+
+    # Enriquecer respuesta
+    cli_result = await db.execute(select(Client).where(Client.id == log.client_id))
+    client = cli_result.scalar_one_or_none()
+    svc_result = await db.execute(select(Service).where(Service.id == log.service_id))
+    service = svc_result.scalar_one_or_none()
+
+    # Enviar resumen por WhatsApp si se solicitó y aún no se envió
+    if data.send_summary and not log.summary_sent:
+        from app.tasks.send_service_summary import send_service_summary_task
+        send_service_summary_task.delay(str(log.id))
+
+    return ServiceLogResponse(
+        **log.__dict__,
+        client_name=client.display_name if client else None,
+        service_name=service.name if service else None,
+    )

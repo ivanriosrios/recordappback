@@ -17,6 +17,8 @@ class Service(Base):
     ref_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     follow_up_days: Mapped[int | None] = mapped_column(Integer, nullable=True)  # días después del servicio para enviar encuesta
+    # KOS-54: duración estimada (minutos) — mostrada en el formulario de cierre
+    estimated_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     business: Mapped["Business"] = relationship("Business", back_populates="services")
