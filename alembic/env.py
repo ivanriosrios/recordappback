@@ -8,7 +8,10 @@ from app.core.config import get_settings
 from app.core.database import Base
 
 # Importar todos los modelos para que Alembic los detecte
-from app.models import Business, Client, Service, Reminder, Template, ReminderLog  # noqa
+from app.models import (  # noqa
+    Business, Client, Service, Reminder, Template, ReminderLog,
+    ServiceLog, Notification, Appointment, BusinessSchedule, ConversationState,
+)
 
 config = context.config
 settings = get_settings()

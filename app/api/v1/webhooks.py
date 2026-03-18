@@ -63,6 +63,7 @@ def _handle_booking_intent(session, client, message_text: str):
     """
     from app.models.business_schedule import BusinessSchedule
     from app.models.conversation_state import ConversationState, ConversationStep
+    from app.models.notification import NotificationType
     from app.services.notifications import create_notification_sync
 
     try:
@@ -77,7 +78,7 @@ def _handle_booking_intent(session, client, message_text: str):
             create_notification_sync(
                 session,
                 client.business_id,
-                "booking_request",
+                NotificationType.BOOKING_REQUEST,
                 f"{client.display_name} quiere agendar una cita",
                 f"El cliente {client.display_name} ({client.phone}) preguntó por disponibilidad. Contáctalo para agendar.",
             )
@@ -113,7 +114,7 @@ def _handle_booking_intent(session, client, message_text: str):
         create_notification_sync(
             session,
             client.business_id,
-            "booking_started",
+            NotificationType.BOOKING_STARTED,
             f"{client.display_name} quiere agendar una cita",
             f"El cliente {client.display_name} ({client.phone}) inició el flujo de agendamiento.",
         )
