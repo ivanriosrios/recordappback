@@ -11,6 +11,8 @@ from app.api.v1.service_logs import router as service_logs_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.client_history import router as client_history_router
+from app.api.v1.appointments import router as appointments_router
+from app.api.v1.schedule import router as schedule_router
 
 api_router = APIRouter()
 
@@ -25,3 +27,5 @@ api_router.include_router(service_logs_router)
 api_router.include_router(analytics_router)
 api_router.include_router(notifications_router)
 api_router.include_router(client_history_router)
+api_router.include_router(appointments_router)
+api_router.include_router(schedule_router)
