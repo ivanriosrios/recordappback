@@ -24,6 +24,18 @@ class AppointmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AppointmentCreate(BaseModel):
+    """Payload para crear una cita manualmente desde el panel."""
+    client_id: UUID
+    service_id: UUID
+    appointment_date: date
+    appointment_time: str | None = None          # "HH:MM" — para mode=time_slots
+    shift: AppointmentShift | None = None        # para mode=capacity
+    notes: str | None = None
+    # Manual = ya coordinado con el cliente, se crea directamente como confirmed
+    status: AppointmentStatus = AppointmentStatus.CONFIRMED
+
+
 class AppointmentUpdate(BaseModel):
     """Payload para acciones de gestión desde el negocio."""
     status: AppointmentStatus | None = None

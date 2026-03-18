@@ -24,7 +24,7 @@ from app.models.appointment import Appointment, AppointmentStatus
 from app.models.business import Business
 from app.models.client import Client
 from app.models.service import Service
-from app.schemas.appointment import AppointmentListItem, AppointmentResponse, AppointmentUpdate
+from app.schemas.appointment import AppointmentCreate, AppointmentListItem, AppointmentResponse, AppointmentUpdate
 
 
 class AppointmentCompleteData(BaseModel):
@@ -88,6 +88,48 @@ async def _enrich_list_item(db: AsyncSession, appt: Appointment) -> AppointmentL
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.post("/", response_model=AppointmentResponse, status_code=201)
+async def create_appointment(
+    business_id: UUID,
+    data: AppointmentCreate,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Crea una cita manualmente desde el panel (sin chatbot).
+    Por defecto el estado es 'confirmed' — ya se coordinó con el cliente.
+    """
+    # Validar que el cliente pertenezca al negocio
+    client_res = await db.execute(
+        select(Client).where(Client.id == data.client_id, Client.business_id == business_id)
+    )
+    if not client_res.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Cliente no encontrado en este negocio")
+
+    # Validar que el servicio pertenezca al negocio
+    service_res = await db.execute(
+        select(Service).where(Service.id == data.service_id, Service.business_id == business_id)
+    )
+    if not service_res.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Servicio no encontrado en este negocio")
+
+    appt = Appointment(
+        business_id=business_id,
+        client_id=data.client_id,
+        service_id=data.service_id,
+        appointment_date=data.appointment_date,
+        appointment_time=data.appointment_time,
+        shift=data.shift,
+        notes=data.notes,
+        status=data.status,
+        confirmed_at=datetime.utcnow() if data.status == AppointmentStatus.CONFIRMED else None,
+    )
+    db.add(appt)
+    await db.flush()
+    await db.refresh(appt)
+    return appt
+
 
 @router.get("/", response_model=list[AppointmentListItem])
 async def list_appointments(
