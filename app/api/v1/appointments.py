@@ -11,7 +11,10 @@ No expone creación manual (las citas se crean por chatbot).
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from decimal import Decimal
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +25,15 @@ from app.models.business import Business
 from app.models.client import Client
 from app.models.service import Service
 from app.schemas.appointment import AppointmentListItem, AppointmentResponse, AppointmentUpdate
+
+
+class AppointmentCompleteData(BaseModel):
+    """Datos opcionales al completar una cita: precio, pago, notas y resumen WA."""
+    price_charged: Decimal | None = None
+    payment_method: str | None = None   # efectivo | tarjeta | transferencia | otro
+    service_notes: str | None = None
+    send_summary: bool = False
+    create_service_log: bool = True     # si True, crea ServiceLog automáticamente
 
 router = APIRouter(prefix="/businesses/{business_id}/appointments", tags=["appointments"])
 
@@ -180,10 +192,17 @@ async def reject_appointment(
 async def complete_appointment(
     business_id: UUID,
     appointment_id: UUID,
+    data: AppointmentCompleteData = Body(default_factory=AppointmentCompleteData),
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """Marca una cita confirmada como completada (el servicio fue realizado)."""
+    """
+    Marca una cita confirmada como completada.
+    Si create_service_log=True crea automáticamente un ServiceLog con el precio,
+    método de pago y notas indicados. Si send_summary=True envía comprobante WA.
+    """
+    from app.models.service_log import ServiceLog
+
     appt = await _get_appointment_or_404(db, business_id, appointment_id)
 
     if appt.status != AppointmentStatus.CONFIRMED:
@@ -195,8 +214,30 @@ async def complete_appointment(
     appt.status = AppointmentStatus.COMPLETED
     appt.completed_at = datetime.utcnow()
     await db.flush()
-    await db.refresh(appt)
 
+    # Crear ServiceLog automáticamente para registrar ingresos y permitir recordatorios
+    if data.create_service_log and appt.service_id and appt.client_id:
+        log = ServiceLog(
+            business_id=business_id,
+            client_id=appt.client_id,
+            service_id=appt.service_id,
+            notes=data.service_notes,
+            price_charged=data.price_charged,
+            payment_method=data.payment_method,
+            service_notes=data.service_notes,
+            follow_up_sent=False,
+            summary_sent=False,
+        )
+        db.add(log)
+        await db.flush()
+        await db.refresh(log)
+
+        # Enviar resumen por WhatsApp si se solicitó
+        if data.send_summary:
+            from app.tasks.send_service_summary import send_service_summary_task
+            send_service_summary_task.delay(str(log.id))
+
+    await db.refresh(appt)
     return appt
 
 
