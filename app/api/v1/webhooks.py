@@ -229,11 +229,20 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
                 client.display_name,
                 business_name,
             )
+            rendered = None
+            if tpl and tpl.body:
+                rendered = provider.render_template(
+                    tpl.body,
+                    client_name=client.display_name,
+                    service_name="",
+                    business_name=business_name,
+                )
             provider.send_template(
                 to=client.phone,
                 template_name=meta_name,
                 language_code=meta_lang,
                 components=components,
+                body_text=rendered,
             )
             return
 

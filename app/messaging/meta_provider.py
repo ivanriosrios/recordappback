@@ -40,6 +40,7 @@ class MetaProvider(MessagingProvider):
         template_name: str,
         language_code: str = "es_CO",
         components: list | None = None,
+        body_text: str | None = None,  # ignorado — Meta usa components
     ) -> MessageResult:
         """Envía un mensaje usando un template aprobado por Meta."""
         phone = self.normalize_phone(to)

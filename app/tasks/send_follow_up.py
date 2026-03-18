@@ -55,11 +55,21 @@ def send_follow_up_task(service_log_id: str):
             business.name,
             service.name,
         )
+        # Renderizar cuerpo del template si está disponible (para Twilio)
+        rendered = None
+        if tpl and tpl.body:
+            rendered = provider.render_template(
+                tpl.body,
+                client_name=client.display_name,
+                service_name=service.name,
+                business_name=business.name,
+            )
         provider.send_template(
             to=client.phone,
             template_name=meta_name,
             language_code=meta_lang,
             components=components,
+            body_text=rendered,
         )
 
         log.follow_up_sent = True

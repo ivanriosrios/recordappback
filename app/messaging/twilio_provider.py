@@ -46,47 +46,41 @@ class TwilioProvider(MessagingProvider):
         template_name: str,
         language_code: str = "es_CO",
         components: list | None = None,
+        body_text: str | None = None,
     ) -> MessageResult:
         """
-        Envía un template de WhatsApp vía Twilio.
+        Envía un template de WhatsApp vía Twilio como mensaje de texto libre.
 
-        Twilio usa Content Templates (content_sid) o puede enviar templates
-        de Meta directamente si están registrados en la cuenta.
-        Para máxima compatibilidad, usamos el approach de content variables.
+        Twilio requiere un content_sid para usar content_variables (Content API).
+        Como no tenemos content_sids configurados, enviamos el mensaje como body
+        de texto plano:
+          1. Si se recibe body_text (ya renderizado por el caller), se usa directamente.
+          2. Si no, se extraen las variables de los components y se unen en un texto legible.
         """
         wa_to = self._whatsapp_to(to)
 
         try:
-            # Extraer variables del body de los components (formato Meta)
-            content_variables = {}
-            if components:
+            # Construir el body del mensaje
+            if body_text:
+                # El caller ya renderizó el template — úsarlo directamente
+                final_body = body_text
+            elif components:
+                # Extraer variables del body de los components (formato Meta)
+                content_variables = {}
                 for comp in components:
                     if comp.get("type") == "body":
                         for idx, param in enumerate(comp.get("parameters", []), start=1):
                             content_variables[str(idx)] = param.get("text", "")
-
-            # Construir kwargs del mensaje
-            message_kwargs = {
-                "from_": self.from_number,
-                "to": wa_to,
-            }
-
-            if content_variables:
-                # Enviar como template con variables usando ContentSid
-                # Si el template está mapeado como Content Template en Twilio:
-                import json
-
-                message_kwargs["content_variables"] = json.dumps(content_variables)
-                # Usamos body como fallback — Twilio lo acepta para templates
-                # cuando no se tiene content_sid y se usa el sandbox
                 body_parts = [content_variables[k] for k in sorted(content_variables.keys())]
-                message_kwargs["body"] = (
-                    f"[Template: {template_name}] " + " | ".join(body_parts)
-                )
+                final_body = " | ".join(body_parts) if body_parts else f"[{template_name}]"
             else:
-                message_kwargs["body"] = f"[Template: {template_name}]"
+                final_body = f"[{template_name}]"
 
-            message = self.client.messages.create(**message_kwargs)
+            message = self.client.messages.create(
+                from_=self.from_number,
+                to=wa_to,
+                body=final_body,
+            )
 
             logger.info(
                 f"[Twilio] Template '{template_name}' enviado a {wa_to} — sid={message.sid}"

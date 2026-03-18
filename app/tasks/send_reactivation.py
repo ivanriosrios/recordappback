@@ -57,11 +57,21 @@ def send_reactivation_task(self, client_id: str, business_id: str):
             client.display_name,
             business.name,
         )
+        # Renderizar cuerpo del template si está disponible (para Twilio)
+        rendered = None
+        if tpl and tpl.body:
+            rendered = provider.render_template(
+                tpl.body,
+                client_name=client.display_name,
+                service_name="",
+                business_name=business.name,
+            )
         result = provider.send_template(
             to=client.phone,
             template_name=meta_name,
             language_code=meta_lang,
             components=components,
+            body_text=rendered,
         )
 
         log = ReminderLog(

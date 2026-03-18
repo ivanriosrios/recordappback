@@ -29,6 +29,7 @@ class MessagingProvider(ABC):
         template_name: str,
         language_code: str = "es_CO",
         components: list | None = None,
+        body_text: str | None = None,
     ) -> MessageResult:
         """
         Envía un mensaje usando un template pre-aprobado.
@@ -37,7 +38,8 @@ class MessagingProvider(ABC):
             to: Número de teléfono destino (E.164, ej: +573001234567)
             template_name: Nombre del template aprobado
             language_code: Código de idioma del template
-            components: Parámetros del template (variables del body)
+            components: Parámetros del template (variables del body) — usado por MetaProvider
+            body_text: Texto ya renderizado — usado por TwilioProvider como body directo
 
         Returns:
             MessageResult con success, message_id y detalles

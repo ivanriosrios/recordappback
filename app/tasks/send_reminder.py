@@ -85,11 +85,19 @@ def send_reminder_task(self, reminder_id: str):
                 body_params = [client.display_name, service.name, business.name]
 
             components = provider.build_body_components(*body_params)
+            # Renderizar el texto del template para Twilio (que no usa content_sid)
+            rendered = provider.render_template(
+                template.body,
+                client_name=client.display_name,
+                service_name=service.name if service else "",
+                business_name=business.name if business else "",
+            )
             result = provider.send_template(
                 to=client.phone,
                 template_name=meta_name,
                 language_code=meta_lang,
                 components=components,
+                body_text=rendered,
             )
         except ValueError as exc:
             # Número inválido (sin indicativo, caracteres no numéricos, etc.)
