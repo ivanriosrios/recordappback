@@ -115,6 +115,18 @@ async def get_client_history(
         else None
     )
 
+    # Total ingresos (suma de price_charged)
+    revenue_result = await db.execute(
+        select(func.coalesce(func.sum(ServiceLog.price_charged), 0)).where(
+            and_(
+                ServiceLog.client_id == client_id,
+                ServiceLog.business_id == business_id,
+                ServiceLog.price_charged.isnot(None),
+            )
+        )
+    )
+    total_revenue = float(revenue_result.scalar() or 0)
+
     # Promedio de rating
     ratings_result = await db.execute(
         select(func.avg(ServiceLog.rating)).where(
@@ -147,6 +159,9 @@ async def get_client_history(
             "completed_at": log.ServiceLog.completed_at.isoformat(),
             "rating": log.ServiceLog.rating,
             "notes": log.ServiceLog.notes,
+            "price_charged": float(log.ServiceLog.price_charged) if log.ServiceLog.price_charged is not None else None,
+            "payment_method": log.ServiceLog.payment_method,
+            "service_notes": log.ServiceLog.service_notes,
         }
         for log in service_logs
     ]
@@ -176,12 +191,16 @@ async def get_client_history(
         "client": {
             "id": str(client.id),
             "display_name": client.display_name,
+            "full_name": client.full_name,
             "phone": client.phone,
+            "email": client.email,
             "status": client.status,
+            "extra_info": client.extra_info,
             "created_at": client.created_at.isoformat(),
         },
         "stats": {
             "total_services": total_services,
+            "total_revenue": total_revenue,
             "total_reminders_sent": total_reminders,
             "response_rate": response_rate,
             "avg_rating": avg_rating,

@@ -18,6 +18,8 @@ NEGATIVE_KEYWORDS = {"no", "nop", "cancelar", "cancel"}
 GOOD_KEYWORDS     = {"bien", "buen", "excelente", "bueno", "good", "perfecto", "genial", "1", "2"}
 BAD_KEYWORDS      = {"mal", "malo", "mala", "bad", "pésimo", "regular", "pesimo", "3", "4"}
 OPTOUT_KEYWORDS   = {"salir", "baja", "stop", "unsubscribe", "no quiero", "no mas", "no más"}
+BOOKING_KEYWORDS  = {"cita", "agendar", "reservar", "turno", "quiero cita", "quiero turno", "hora",
+                     "appointment", "book", "reserva", "cuando", "disponible", "agenda"}
 
 
 def _normalize(text: str) -> str:
@@ -36,6 +38,8 @@ def _classify_response(text: str) -> str:
     words = set(t.split())
     if words & OPTOUT_KEYWORDS or any(k in t for k in OPTOUT_KEYWORDS):
         return "optout"
+    if any(k in t for k in BOOKING_KEYWORDS):
+        return "booking_intent"
     if words & GOOD_KEYWORDS or any(k in t for k in GOOD_KEYWORDS):
         return "rated_good"
     if words & BAD_KEYWORDS or any(k in t for k in BAD_KEYWORDS):
@@ -45,6 +49,99 @@ def _classify_response(text: str) -> str:
     if words & NEGATIVE_KEYWORDS:
         return "responded_no"
     return "unknown"
+
+
+def _handle_booking_intent(session, client, message_text: str):
+    """
+    KOS-60: Router de contexto para mensajes de agendamiento.
+    Si el negocio tiene chatbot activo (BusinessSchedule), inicia el flujo.
+    De lo contrario, notifica al admin que hay un cliente interesado.
+    """
+    from app.models.business_schedule import BusinessSchedule
+    from app.models.conversation_state import ConversationState, ConversationStep
+    from app.services.notifications import create_notification_sync
+
+    try:
+        # Verificar si el negocio tiene horario configurado
+        sched = session.query(BusinessSchedule).filter(
+            BusinessSchedule.business_id == client.business_id,
+            BusinessSchedule.is_active.is_(True),
+        ).first()
+
+        if not sched:
+            # Sin chatbot activo → crear notificación para el admin
+            create_notification_sync(
+                session,
+                client.business_id,
+                "booking_request",
+                f"{client.display_name} quiere agendar una cita",
+                f"El cliente {client.display_name} ({client.phone}) preguntó por disponibilidad. Contáctalo para agendar.",
+            )
+            logger.info(f"[webhook] booking_intent sin chatbot → notificación creada para {client.business_id}")
+            return
+
+        # Verificar/crear ConversationState
+        state = session.query(ConversationState).filter(
+            ConversationState.client_id == client.id
+        ).first()
+
+        if not state:
+            state = ConversationState(
+                business_id=client.business_id,
+                client_id=client.id,
+                step=ConversationStep.IDLE,
+                context_data={},
+            )
+            session.add(state)
+            session.flush()
+
+        # Si ya está en un flujo activo, no reiniciar
+        if state.step != ConversationStep.IDLE:
+            logger.info(f"[webhook] Cliente {client.id} ya tiene flujo activo en step={state.step}")
+            return
+
+        # Iniciar flujo de agendamiento — crear notificación para que el admin gestione
+        state.step = ConversationStep.SELECTING_SERVICE
+        state.context_data = {"message": message_text}
+        from datetime import datetime
+        state.last_activity = datetime.utcnow()
+
+        create_notification_sync(
+            session,
+            client.business_id,
+            "booking_started",
+            f"{client.display_name} quiere agendar una cita",
+            f"El cliente {client.display_name} ({client.phone}) inició el flujo de agendamiento.",
+        )
+        session.commit()
+        logger.info(f"[webhook] booking_intent → flujo iniciado para cliente {client.id}")
+
+        # Enviar respuesta inicial al cliente
+        try:
+            from app.services.whatsapp import whatsapp
+            from app.models.service import Service
+            services = session.query(Service).filter(
+                Service.business_id == client.business_id,
+                Service.is_active.is_(True),
+            ).limit(10).all()
+
+            if services:
+                service_list = "\n".join(
+                    f"  {i+1}. {s.name}" + (f" (${float(s.ref_price):,.0f})" if s.ref_price else "")
+                    for i, s in enumerate(services)
+                )
+                msg = (
+                    f"¡Hola {client.display_name}! 👋\n\n"
+                    f"Estos son nuestros servicios disponibles:\n{service_list}\n\n"
+                    f"Responde con el *número* del servicio que deseas o escribe directamente el nombre."
+                )
+                whatsapp.send_text(to=client.phone, body=msg)
+        except Exception as exc:
+            logger.warning(f"[webhook] No se pudo enviar menú de servicios: {exc}")
+
+    except Exception as exc:
+        session.rollback()
+        logger.exception(f"[webhook] Error en booking_intent: {exc}")
 
 
 def _process_message(from_phone: str, message_text: str, wa_message_id: str | None = None):
@@ -68,6 +165,24 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             logger.warning(f"[webhook] Cliente no encontrado para {from_phone}")
             return
         client = clients[0]
+
+        # KOS-60: Si hay una conversación activa, redirigir al handler del chatbot
+        if intent not in ("optout",):
+            from app.models.conversation_state import ConversationState, ConversationStep
+            conv = (
+                session.query(ConversationState)
+                .filter(ConversationState.client_id == client.id)
+                .first()
+            )
+            if conv and conv.step not in (ConversationStep.IDLE, ConversationStep.COMPLETED, ConversationStep.CANCELLED):
+                # Hay un flujo de chatbot activo — no procesar como respuesta a reminder
+                logger.info(f"[webhook] Cliente {client.id} en chatbot step={conv.step}, ignorando como reminder")
+                return
+
+        # Booking intent (KOS-60)
+        if intent == "booking_intent":
+            _handle_booking_intent(session, client, message_text)
+            return
 
         # Opt-out
         if intent == "optout":
