@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, date
 
 from app.tasks.celery_app import celery_app
 from app.tasks.db_utils import get_sync_session
-from app.services.whatsapp import whatsapp
+from app.messaging import get_messaging_provider
 
 logger = logging.getLogger(__name__)
 
@@ -70,24 +70,22 @@ def send_reminder_task(self, reminder_id: str):
             session.commit()
             return
 
-        # Enviar por WhatsApp usando template aprobado por Meta
+        # Enviar por WhatsApp usando el proveedor configurado (Twilio o Meta)
         try:
+            provider = get_messaging_provider()
             meta_name = template.meta_template_name or "recordatorio_cita"
             meta_lang = template.meta_language_code or "es_CO"
 
-            # Componentes según la plantilla Meta publicada
+            # Componentes según la plantilla publicada
             if meta_name == "encuesta_servicio":
-                # Hola {{1}}, hace poco te atendimos en {{2}} con el servicio {{3}}...
                 body_params = [client.display_name, business.name, service.name]
             elif meta_name == "reactivacion_cliente":
-                # Hola {{1}}, hace tiempos que no te vemos {{2}}...
                 body_params = [client.display_name, business.name]
             else:
-                # Por defecto: cliente, servicio, negocio
                 body_params = [client.display_name, service.name, business.name]
 
-            components = whatsapp.build_body_components(*body_params)
-            result = whatsapp.send_template(
+            components = provider.build_body_components(*body_params)
+            result = provider.send_template(
                 to=client.phone,
                 template_name=meta_name,
                 language_code=meta_lang,
@@ -109,13 +107,13 @@ def send_reminder_task(self, reminder_id: str):
             return
 
         # Registrar log
-        log_status = LogStatus.SENT if result["success"] else LogStatus.FAILED
+        log_status = LogStatus.SENT if result.success else LogStatus.FAILED
         log = ReminderLog(
             reminder_id=reminder.id,
             sent_at=datetime.utcnow(),
             channel=LogChannel.WHATSAPP,
             status=log_status,
-            wa_message_id=result.get("wa_message_id"),
+            wa_message_id=result.message_id,
         )
         session.add(log)
 
@@ -123,7 +121,7 @@ def send_reminder_task(self, reminder_id: str):
         from app.services.notifications import create_notification_sync
         from app.models.notification import NotificationType
 
-        if result["success"]:
+        if result.success:
             create_notification_sync(
                 session,
                 business.id,
@@ -143,7 +141,7 @@ def send_reminder_task(self, reminder_id: str):
                 reminder.status = ReminderStatus.DONE
                 logger.info(f"[send_reminder] Reminder {reminder_id} completado")
         else:
-            error_msg = result.get("error", "Error WhatsApp")
+            error_msg = result.error or "Error WhatsApp"
             create_notification_sync(
                 session,
                 business.id,

@@ -44,6 +44,8 @@ class Business(Base):
     services: Mapped[list["Service"]] = relationship("Service", back_populates="business", cascade="all, delete-orphan")
     templates: Mapped[list["Template"]] = relationship("Template", back_populates="business", cascade="all, delete-orphan")
     service_logs: Mapped[list["ServiceLog"]] = relationship("ServiceLog", back_populates="business", cascade="all, delete-orphan")
+    appointments: Mapped[list["Appointment"]] = relationship("Appointment", back_populates="business", cascade="all, delete-orphan")
+    schedule: Mapped["BusinessSchedule | None"] = relationship("BusinessSchedule", back_populates="business", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Business {self.name}>"

@@ -12,7 +12,7 @@ def send_follow_up_task(service_log_id: str):
     """Envía una encuesta corta al cliente y marca follow_up_sent."""
     from app.models.service_log import ServiceLog
     from app.models.template import Template
-    from app.services.whatsapp import whatsapp
+    from app.messaging import get_messaging_provider
 
     session = get_sync_session()
     try:
@@ -48,13 +48,14 @@ def send_follow_up_task(service_log_id: str):
         meta_name = tpl.meta_template_name if tpl else "encuesta_servicio"
         meta_lang = tpl.meta_language_code if tpl else "es_CO"
 
-        # Enviar encuesta post-servicio
-        components = whatsapp.build_body_components(
+        # Enviar encuesta post-servicio usando el proveedor configurado
+        provider = get_messaging_provider()
+        components = provider.build_body_components(
             client.display_name,
             business.name,
             service.name,
         )
-        whatsapp.send_template(
+        provider.send_template(
             to=client.phone,
             template_name=meta_name,
             language_code=meta_lang,

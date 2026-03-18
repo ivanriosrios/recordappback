@@ -236,6 +236,49 @@ def check_birthdays():
         session.close()
 
 
+@celery_app.task(name="app.tasks.scheduler.check_appointment_reminders")
+def check_appointment_reminders():
+    """
+    Corre cada hora (:30). Busca citas CONFIRMED para mañana
+    que aún no tengan reminder_sent=True y encola el recordatorio.
+    """
+    from app.models.appointment import Appointment, AppointmentStatus
+    from app.tasks.send_appointment_reminder import send_appointment_reminder_task
+    from sqlalchemy import and_
+    from datetime import timedelta
+
+    session = get_sync_session()
+    try:
+        tomorrow = date.today() + timedelta(days=1)
+
+        appointments = (
+            session.query(Appointment)
+            .filter(
+                and_(
+                    Appointment.status == AppointmentStatus.CONFIRMED,
+                    Appointment.appointment_date == tomorrow,
+                    Appointment.reminder_sent == False,  # noqa: E712
+                )
+            )
+            .all()
+        )
+
+        enqueued = 0
+        for appt in appointments:
+            send_appointment_reminder_task.delay(str(appt.id))
+            enqueued += 1
+            logger.info(f"[scheduler] Recordatorio de cita encolado para {appt.id}")
+
+        logger.info(f"[scheduler] check_appointment_reminders — {enqueued} recordatorios encolados")
+        return {"enqueued": enqueued}
+
+    except Exception as exc:
+        logger.exception(f"[scheduler] Error en check_appointment_reminders: {exc}")
+        raise
+    finally:
+        session.close()
+
+
 @celery_app.task(name="app.tasks.scheduler.check_inactive_clients")
 def check_inactive_clients():
     """

@@ -14,11 +14,21 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # WhatsApp Cloud API
+    # WhatsApp Cloud API (Meta — legacy, se mantiene para backward compat)
     WHATSAPP_TOKEN: str = ""
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_VERIFY_TOKEN: str = ""
     WHATSAPP_API_URL: str = "https://graph.facebook.com/v21.0"
+
+    # Twilio (nuevo provider de mensajería)
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_API_KEY_SID: str = ""
+    TWILIO_API_KEY_SECRET: str = ""
+    TWILIO_WHATSAPP_NUMBER: str = ""  # formato: whatsapp:+573001234567
+    TWILIO_WEBHOOK_AUTH_TOKEN: str = ""  # para validar firma de webhooks
+
+    # Proveedor de mensajería activo: "twilio" o "meta"
+    MESSAGING_PROVIDER: str = "twilio"
 
     # JWT Auth
     SECRET_KEY: str = "change-this-in-production"

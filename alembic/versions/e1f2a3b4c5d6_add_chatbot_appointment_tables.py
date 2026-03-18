@@ -15,29 +15,36 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ── 1. Crear tipos ENUM ─────────────────────────────────────────────────
-    op.execute(sa.text("""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'schedulemode') THEN
-                CREATE TYPE schedulemode AS ENUM ('time_slots', 'capacity');
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'appointmentstatus') THEN
-                CREATE TYPE appointmentstatus AS ENUM (
-                    'requested', 'confirmed', 'rejected', 'completed', 'cancelled'
-                );
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'appointmentshift') THEN
-                CREATE TYPE appointmentshift AS ENUM ('morning', 'afternoon', 'evening');
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'conversationstep') THEN
-                CREATE TYPE conversationstep AS ENUM (
-                    'idle', 'selecting_service', 'selecting_date',
-                    'selecting_slot', 'confirming', 'completed', 'cancelled'
-                );
-            END IF;
-        END$$;
-    """))
+    # ── 1. Crear tipos ENUM vía SQL puro ─────────────────────────────────────
+    # Usamos DROP IF EXISTS + CREATE para garantizar idempotencia.
+    # Los tipos son nuevos (no los usa ninguna tabla existente).
+    op.execute(sa.text("DROP TYPE IF EXISTS conversationstep CASCADE"))
+    op.execute(sa.text("DROP TYPE IF EXISTS appointmentshift CASCADE"))
+    op.execute(sa.text("DROP TYPE IF EXISTS appointmentstatus CASCADE"))
+    op.execute(sa.text("DROP TYPE IF EXISTS schedulemode CASCADE"))
+
+    op.execute(sa.text(
+        "CREATE TYPE schedulemode AS ENUM ('time_slots', 'capacity')"
+    ))
+    op.execute(sa.text(
+        "CREATE TYPE appointmentstatus AS ENUM "
+        "('requested', 'confirmed', 'rejected', 'completed', 'cancelled')"
+    ))
+    op.execute(sa.text(
+        "CREATE TYPE appointmentshift AS ENUM ('morning', 'afternoon', 'evening')"
+    ))
+    op.execute(sa.text(
+        "CREATE TYPE conversationstep AS ENUM "
+        "('idle', 'selecting_service', 'selecting_date', "
+        "'selecting_slot', 'confirming', 'completed', 'cancelled')"
+    ))
+
+    # Referencia a ENUMs ya existentes — create_type=False evita que SQLAlchemy
+    # intente recrearlos al hacer create_table.
+    schedulemode_t     = postgresql.ENUM(name="schedulemode",      create_type=False)
+    appt_status_t      = postgresql.ENUM(name="appointmentstatus", create_type=False)
+    appt_shift_t       = postgresql.ENUM(name="appointmentshift",  create_type=False)
+    conv_step_t        = postgresql.ENUM(name="conversationstep",  create_type=False)
 
     # ── 2. Tabla business_schedules ──────────────────────────────────────────
     op.create_table(
@@ -47,8 +54,7 @@ def upgrade() -> None:
         sa.Column("business_id", postgresql.UUID(as_uuid=True),
                   sa.ForeignKey("businesses.id", ondelete="CASCADE"),
                   nullable=False, unique=True),
-        sa.Column("mode", sa.Enum("time_slots", "capacity", name="schedulemode",
-                                  create_type=False),
+        sa.Column("mode", schedulemode_t,
                   nullable=False, server_default="time_slots"),
         sa.Column("schedule_data", postgresql.JSONB, nullable=False,
                   server_default="{}"),
@@ -76,16 +82,11 @@ def upgrade() -> None:
                   sa.ForeignKey("clients.id", ondelete="CASCADE"), nullable=False),
         sa.Column("service_id", postgresql.UUID(as_uuid=True),
                   sa.ForeignKey("services.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("status",
-                  sa.Enum("requested", "confirmed", "rejected", "completed", "cancelled",
-                          name="appointmentstatus", create_type=False),
+        sa.Column("status", appt_status_t,
                   nullable=False, server_default="requested"),
         sa.Column("appointment_date", sa.Date, nullable=False),
         sa.Column("appointment_time", sa.String(5), nullable=True),
-        sa.Column("shift",
-                  sa.Enum("morning", "afternoon", "evening",
-                          name="appointmentshift", create_type=False),
-                  nullable=True),
+        sa.Column("shift", appt_shift_t, nullable=True),
         sa.Column("notes", sa.Text, nullable=True),
         sa.Column("confirmed_at", sa.DateTime, nullable=True),
         sa.Column("completed_at", sa.DateTime, nullable=True),
@@ -110,10 +111,7 @@ def upgrade() -> None:
         sa.Column("client_id", postgresql.UUID(as_uuid=True),
                   sa.ForeignKey("clients.id", ondelete="CASCADE"),
                   nullable=False, unique=True),
-        sa.Column("step",
-                  sa.Enum("idle", "selecting_service", "selecting_date",
-                          "selecting_slot", "confirming", "completed", "cancelled",
-                          name="conversationstep", create_type=False),
+        sa.Column("step", conv_step_t,
                   nullable=False, server_default="idle"),
         sa.Column("context_data", postgresql.JSONB, nullable=False,
                   server_default="{}"),

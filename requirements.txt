@@ -24,3 +24,6 @@ httpx==0.28.1
 
 # WhatsApp Cloud API
 requests==2.32.3
+
+# Twilio (WhatsApp messaging provider)
+twilio==9.4.0

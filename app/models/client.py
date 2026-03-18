@@ -60,6 +60,8 @@ class Client(Base):
     business: Mapped["Business"] = relationship("Business", back_populates="clients")
     reminders: Mapped[list["Reminder"]] = relationship("Reminder", back_populates="client", cascade="all, delete-orphan")
     service_logs: Mapped[list["ServiceLog"]] = relationship("ServiceLog", back_populates="client", cascade="all, delete-orphan")
+    appointments: Mapped[list["Appointment"]] = relationship("Appointment", back_populates="client", cascade="all, delete-orphan")
+    conversation_state: Mapped["ConversationState | None"] = relationship("ConversationState", back_populates="client", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Client {self.display_name}>"

@@ -24,6 +24,7 @@ class Service(Base):
     business: Mapped["Business"] = relationship("Business", back_populates="services")
     reminders: Mapped[list["Reminder"]] = relationship("Reminder", back_populates="service")
     service_logs: Mapped[list["ServiceLog"]] = relationship("ServiceLog", back_populates="service")
+    appointments: Mapped[list["Appointment"]] = relationship("Appointment", back_populates="service")
 
     def __repr__(self) -> str:
         return f"<Service {self.name}>"

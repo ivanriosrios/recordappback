@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from app.tasks.celery_app import celery_app
 from app.tasks.db_utils import get_sync_session
-from app.services.whatsapp import whatsapp
+from app.messaging import get_messaging_provider
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +51,13 @@ def send_reactivation_task(self, client_id: str, business_id: str):
         meta_name = tpl.meta_template_name if tpl else "reactivacion_cliente"
         meta_lang = tpl.meta_language_code if tpl else "es_CO"
 
-        # Enviar usando template aprobado por Meta
-        components = whatsapp.build_body_components(
+        # Enviar usando el proveedor configurado (Twilio o Meta)
+        provider = get_messaging_provider()
+        components = provider.build_body_components(
             client.display_name,
             business.name,
         )
-        result = whatsapp.send_template(
+        result = provider.send_template(
             to=client.phone,
             template_name=meta_name,
             language_code=meta_lang,
@@ -66,15 +67,15 @@ def send_reactivation_task(self, client_id: str, business_id: str):
         log = ReminderLog(
             sent_at=datetime.utcnow(),
             channel=LogChannel.WHATSAPP,
-            status=LogStatus.SENT if result["success"] else LogStatus.FAILED,
-            wa_message_id=result.get("wa_message_id"),
+            status=LogStatus.SENT if result.success else LogStatus.FAILED,
+            wa_message_id=result.message_id,
         )
         session.add(log)
 
-        if result["success"]:
+        if result.success:
             logger.info(f"[reactivation] Enviado a {client.display_name}")
         else:
-            logger.error(f"[reactivation] Fallo: {result.get('error')}")
+            logger.error(f"[reactivation] Fallo: {result.error}")
 
         session.commit()
     except Exception as exc:

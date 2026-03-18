@@ -16,7 +16,6 @@ celery_app = Celery(
         "app.tasks.send_follow_up",
         "app.tasks.send_birthday",
         "app.tasks.send_reactivation",
-        "app.tasks.send_service_summary",
         "app.tasks.send_appointment_reminder",
         "app.tasks.notify_pending_appointments",
         "app.tasks.scheduler",
@@ -68,10 +67,10 @@ celery_app.conf.update(
             "task": "app.tasks.scheduler.check_inactive_clients",
             "schedule": crontab(hour=10, minute=0, day_of_week=1),
         },
-        # Cada hora (:30) revisa citas confirmadas mañana y envía recordatorio
+        # Cada hora revisa citas confirmadas para mañana y envía recordatorio
         "check-appointment-reminders": {
             "task": "app.tasks.scheduler.check_appointment_reminders",
-            "schedule": crontab(minute=30),
+            "schedule": crontab(minute=30),   # :30 de cada hora
         },
         # Cada 2h alerta al negocio sobre citas sin confirmar
         "check-pending-appointments": {

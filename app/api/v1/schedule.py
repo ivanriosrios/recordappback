@@ -1,146 +1,139 @@
 """
-Endpoints para configuración de horarios del negocio (KOS-51).
+API de Horario del Negocio (BusinessSchedule) — KOS-51.
 
-GET    /businesses/{id}/schedule   — obtener horario
-PUT    /businesses/{id}/schedule   — crear o reemplazar
-PATCH  /businesses/{id}/schedule   — actualizar parcialmente
-DELETE /businesses/{id}/schedule   — eliminar
+Permite configurar los días y horas disponibles para agendar citas,
+el modo de horario (slots exactos vs turnos), y la ventana de días
+hacia adelante que el chatbot mostrará a los clientes.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from uuid import UUID
-from typing import Optional
-from pydantic import BaseModel, Field
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import verify_business_access
 from app.models.business import Business
-from app.models.business_schedule import BusinessSchedule, ScheduleMode
+from app.models.business_schedule import BusinessSchedule
+from app.schemas.business_schedule import (
+    BusinessScheduleCreate,
+    BusinessScheduleResponse,
+    BusinessScheduleUpdate,
+)
 
 router = APIRouter(prefix="/businesses/{business_id}/schedule", tags=["schedule"])
 
 
-class ScheduleUpsert(BaseModel):
-    mode: Optional[str] = "time_slots"
-    schedule_data: Optional[dict] = Field(default_factory=dict)
-    slot_duration_minutes: Optional[int] = Field(30, ge=15, le=480)
-    max_days_ahead: Optional[int] = Field(30, ge=1, le=60)
-    is_active: Optional[bool] = True
+async def _get_schedule(db: AsyncSession, business_id: UUID) -> BusinessSchedule | None:
+    result = await db.execute(
+        select(BusinessSchedule).where(BusinessSchedule.business_id == business_id)
+    )
+    return result.scalar_one_or_none()
 
 
-def _schedule_dict(s: BusinessSchedule) -> dict:
-    return {
-        "id": str(s.id),
-        "business_id": str(s.business_id),
-        "mode": s.mode,
-        "schedule_data": s.schedule_data,
-        "slot_duration_minutes": s.slot_duration_minutes,
-        "max_days_ahead": s.max_days_ahead,
-        "is_active": s.is_active,
-        "created_at": s.created_at.isoformat(),
-        "updated_at": s.updated_at.isoformat(),
-    }
-
-
-@router.get("")
-@router.get("/")
+@router.get("/", response_model=BusinessScheduleResponse)
 async def get_schedule(
     business_id: UUID,
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(BusinessSchedule).where(BusinessSchedule.business_id == business_id)
-    )
-    sched = result.scalar_one_or_none()
-    if not sched:
-        raise HTTPException(status_code=404, detail="Horario no configurado")
-    return _schedule_dict(sched)
+    """Retorna el horario configurado del negocio."""
+    schedule = await _get_schedule(db, business_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="El negocio no tiene horario configurado")
+    return schedule
 
 
-@router.put("")
-@router.put("/")
+@router.put("/", response_model=BusinessScheduleResponse, status_code=status.HTTP_200_OK)
 async def upsert_schedule(
     business_id: UUID,
-    data: ScheduleUpsert,
+    data: BusinessScheduleCreate,
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(BusinessSchedule).where(BusinessSchedule.business_id == business_id)
-    )
-    sched = result.scalar_one_or_none()
+    """
+    Crea o reemplaza el horario del negocio.
 
-    try:
-        mode = ScheduleMode(data.mode or "time_slots")
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Modo inválido: {data.mode}")
+    Si ya existe un horario, lo actualiza completamente.
+    Si no existe, lo crea.
 
-    if sched:
-        sched.mode = mode
-        sched.schedule_data = data.schedule_data or {}
-        sched.slot_duration_minutes = data.slot_duration_minutes or 30
-        sched.max_days_ahead = data.max_days_ahead or 30
-        sched.is_active = data.is_active if data.is_active is not None else True
+    Ejemplo de schedule_data para mode=time_slots:
+    ```json
+    {
+      "monday":    ["09:00", "10:00", "11:00", "14:00", "15:00"],
+      "tuesday":   ["09:00", "10:00", "11:00"],
+      "wednesday": ["09:00", "10:00", "11:00", "14:00", "15:00"],
+      "thursday":  ["09:00", "10:00", "11:00"],
+      "friday":    ["09:00", "10:00", "11:00", "14:00", "15:00"],
+      "saturday":  ["09:00", "10:00"]
+    }
+    ```
+
+    Ejemplo para mode=capacity:
+    ```json
+    {
+      "monday":   {"morning": 5, "afternoon": 3},
+      "tuesday":  {"morning": 5, "afternoon": 3},
+      "saturday": {"morning": 4}
+    }
+    ```
+    """
+    schedule = await _get_schedule(db, business_id)
+
+    if schedule:
+        # Actualizar existente
+        schedule.mode = data.mode
+        schedule.schedule_data = data.schedule_data
+        schedule.slot_duration_minutes = data.slot_duration_minutes
+        schedule.max_days_ahead = data.max_days_ahead
+        schedule.is_active = data.is_active
     else:
-        sched = BusinessSchedule(
+        # Crear nuevo
+        schedule = BusinessSchedule(
             business_id=business_id,
-            mode=mode,
-            schedule_data=data.schedule_data or {},
-            slot_duration_minutes=data.slot_duration_minutes or 30,
-            max_days_ahead=data.max_days_ahead or 30,
-            is_active=data.is_active if data.is_active is not None else True,
+            mode=data.mode,
+            schedule_data=data.schedule_data,
+            slot_duration_minutes=data.slot_duration_minutes,
+            max_days_ahead=data.max_days_ahead,
+            is_active=data.is_active,
         )
-        db.add(sched)
+        db.add(schedule)
 
     await db.flush()
-    await db.refresh(sched)
-    return _schedule_dict(sched)
+    await db.refresh(schedule)
+    return schedule
 
 
-@router.patch("")
-@router.patch("/")
+@router.patch("/", response_model=BusinessScheduleResponse)
 async def patch_schedule(
     business_id: UUID,
-    data: dict,
+    data: BusinessScheduleUpdate,
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(BusinessSchedule).where(BusinessSchedule.business_id == business_id)
-    )
-    sched = result.scalar_one_or_none()
-    if not sched:
-        raise HTTPException(status_code=404, detail="Horario no configurado")
+    """Actualiza parcialmente el horario del negocio."""
+    schedule = await _get_schedule(db, business_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="El negocio no tiene horario configurado")
 
-    allowed = {"mode", "schedule_data", "slot_duration_minutes", "max_days_ahead", "is_active"}
-    for key, val in data.items():
-        if key in allowed and val is not None:
-            if key == "mode":
-                try:
-                    val = ScheduleMode(val)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=f"Modo inválido: {val}")
-            setattr(sched, key, val)
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(schedule, field, value)
 
     await db.flush()
-    await db.refresh(sched)
-    return _schedule_dict(sched)
+    await db.refresh(schedule)
+    return schedule
 
 
-@router.delete("")
-@router.delete("/")
+@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(
     business_id: UUID,
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(BusinessSchedule).where(BusinessSchedule.business_id == business_id)
-    )
-    sched = result.scalar_one_or_none()
-    if not sched:
-        raise HTTPException(status_code=404, detail="Horario no configurado")
-    await db.delete(sched)
-    return {"detail": "Horario eliminado"}
+    """Elimina el horario del negocio (deshabilita el chatbot de agendamiento)."""
+    schedule = await _get_schedule(db, business_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="El negocio no tiene horario configurado")
+
+    await db.delete(schedule)

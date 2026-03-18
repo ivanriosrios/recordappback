@@ -1,11 +1,15 @@
 """
-Webhook de WhatsApp Cloud API.
+Webhooks de WhatsApp.
 
-GET  /webhooks/whatsapp — verificación del webhook por Meta
-POST /webhooks/whatsapp — recibe eventos (mensajes, status updates)
+Soporta dos proveedores:
+- Meta WhatsApp Cloud API (GET/POST /webhooks/whatsapp)
+- Twilio WhatsApp (POST /webhooks/twilio)
+
+El webhook activo depende de MESSAGING_PROVIDER en config.
+Ambos endpoints coexisten para facilitar la migración.
 """
 import logging
-from fastapi import APIRouter, Request, Query, HTTPException
+from fastapi import APIRouter, Request, Query, HTTPException, Form
 from app.core.config import get_settings
 from app.tasks.db_utils import get_sync_session
 
@@ -199,11 +203,12 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             )
             session.commit()
             logger.info(f"[webhook] Cliente {client.id} → OPTOUT")
-            from app.services.whatsapp import whatsapp
+            from app.messaging import get_messaging_provider
             from app.models.business import Business
             from app.models.template import Template
             from sqlalchemy import select as sa_select
 
+            provider = get_messaging_provider()
             business = session.get(Business, str(client.business_id))
             business_name = business.name if business else "nuestro negocio"
 
@@ -219,11 +224,11 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
             meta_name = tpl.meta_template_name if tpl else "confirmacion_optout"
             meta_lang = tpl.meta_language_code if tpl else "es_CO"
 
-            components = whatsapp.build_body_components(
+            components = provider.build_body_components(
                 client.display_name,
                 business_name,
             )
-            whatsapp.send_template(
+            provider.send_template(
                 to=client.phone,
                 template_name=meta_name,
                 language_code=meta_lang,
@@ -377,3 +382,166 @@ async def receive_webhook(request: Request):
         logger.exception(f"[webhook] Error procesando evento: {exc}")
 
     return {"status": "ok"}
+
+
+# ─── Twilio Webhook ──────────────────────────────────────────────────────
+
+def _validate_twilio_signature(request: Request, body: bytes) -> bool:
+    """
+    Valida la firma X-Twilio-Signature del webhook.
+    Si TWILIO_WEBHOOK_AUTH_TOKEN no está configurado, skip (dev mode).
+    """
+    auth_token = settings.TWILIO_WEBHOOK_AUTH_TOKEN
+    if not auth_token:
+        logger.warning("[twilio-webhook] No TWILIO_WEBHOOK_AUTH_TOKEN — skip validación de firma")
+        return True
+
+    try:
+        from twilio.request_validator import RequestValidator
+
+        validator = RequestValidator(auth_token)
+        signature = request.headers.get("X-Twilio-Signature", "")
+        url = str(request.url)
+        from urllib.parse import parse_qs
+
+        params = {}
+        for key, values in parse_qs(body.decode("utf-8")).items():
+            params[key] = values[0] if values else ""
+
+        return validator.validate(url, params, signature)
+    except Exception as e:
+        logger.error(f"[twilio-webhook] Error validando firma: {e}")
+        return False
+
+
+@router.post("/twilio")
+async def receive_twilio_webhook(request: Request):
+    """
+    Recibe mensajes entrantes de WhatsApp vía Twilio.
+
+    Twilio envía webhooks como application/x-www-form-urlencoded con campos:
+    - From: whatsapp:+573001234567
+    - To: whatsapp:+14155238886
+    - Body: texto del mensaje
+    - MessageSid: ID único del mensaje
+    - SmsStatus / MessageStatus: delivered, read, etc.
+    """
+    body = await request.body()
+
+    if not _validate_twilio_signature(request, body):
+        logger.warning("[twilio-webhook] Firma inválida — rechazado")
+        raise HTTPException(status_code=403, detail="Firma Twilio inválida")
+
+    try:
+        form = await request.form()
+        from_number = form.get("From", "")
+        message_body = form.get("Body", "")
+        message_sid = form.get("MessageSid", "")
+        message_status = form.get("SmsStatus", "") or form.get("MessageStatus", "")
+
+        # Limpiar prefijo whatsapp: del número
+        phone = from_number.replace("whatsapp:", "").replace("+", "").strip()
+
+        logger.info(
+            f"[twilio-webhook] De {phone} — body='{message_body}' "
+            f"sid={message_sid} status={message_status}"
+        )
+
+        # Status callback (delivery receipt)
+        if message_status in ("delivered", "read") and message_sid:
+            _update_log_delivery_status(message_sid, message_status)
+            return {"status": "ok"}
+
+        # Mensaje entrante de texto
+        if message_body:
+            _process_twilio_message(phone, message_body, message_sid)
+
+    except Exception as exc:
+        logger.exception(f"[twilio-webhook] Error procesando evento: {exc}")
+
+    return {"status": "ok"}
+
+
+def _process_twilio_message(from_phone: str, message_text: str, wa_message_id: str | None = None):
+    """
+    Orquesta el routing de mensajes entrantes de Twilio:
+
+    1. Si el cliente tiene una conversación de chatbot activa (paso != IDLE) → ChatbotEngine
+    2. Si hay un ReminderLog reciente en estado SENT → legacy reminder handler
+    3. En cualquier otro caso → ChatbotEngine (manejará booking keywords o responderá desconocido)
+
+    Esto evita que "sí" se interprete como inicio de booking cuando el cliente
+    responde a un recordatorio de cita.
+    """
+    from app.models.client import Client, ClientStatus
+    from app.models.conversation_state import ConversationState, ConversationStep
+    from app.models.reminder_log import ReminderLog, LogStatus
+    from app.models.reminder import Reminder
+    from app.chatbot import ChatbotEngine
+    from sqlalchemy import and_, desc
+
+    session = _get_session()
+    try:
+        phone_suffix = from_phone.replace("+", "").replace(" ", "")[-10:]
+        clients = session.query(Client).filter(Client.phone.contains(phone_suffix)).all()
+
+        if not clients:
+            logger.info(f"[twilio-webhook] Número desconocido {from_phone}, ignorando")
+            return
+
+        client = clients[0]
+
+        if client.status == ClientStatus.OPTOUT:
+            logger.info(f"[twilio-webhook] Cliente {client.id} en opt-out, ignorando")
+            return
+
+        # 1. Verificar si hay conversación de chatbot activa
+        conv_state = (
+            session.query(ConversationState)
+            .filter(ConversationState.client_id == client.id)
+            .first()
+        )
+        has_active_chatbot = (
+            conv_state is not None
+            and conv_state.step not in (ConversationStep.IDLE, ConversationStep.COMPLETED, ConversationStep.CANCELLED)
+        )
+
+        if has_active_chatbot:
+            logger.info(f"[twilio-webhook] Cliente {client.id} en flujo chatbot ({conv_state.step}) → ChatbotEngine")
+            session.close()
+            engine = ChatbotEngine(_get_session())
+            engine.handle_message(from_phone, message_text, wa_message_id)
+            return
+
+        # 2. Verificar si hay un ReminderLog reciente en SENT (respuesta a recordatorio)
+        last_sent_log = (
+            session.query(ReminderLog)
+            .join(Reminder, ReminderLog.reminder_id == Reminder.id)
+            .filter(
+                and_(
+                    Reminder.client_id == client.id,
+                    ReminderLog.status == LogStatus.SENT,
+                )
+            )
+            .order_by(desc(ReminderLog.sent_at))
+            .first()
+        )
+
+        session.close()
+
+        if last_sent_log:
+            logger.info(f"[twilio-webhook] Cliente {client.id} con reminder pendiente → legacy handler")
+            _process_message(from_phone, message_text, wa_message_id)
+            return
+
+        # 3. Sin contexto previo → ChatbotEngine (maneja booking keywords o responde desconocido)
+        logger.info(f"[twilio-webhook] Cliente {client.id} sin contexto → ChatbotEngine")
+        engine = ChatbotEngine(_get_session())
+        engine.handle_message(from_phone, message_text, wa_message_id)
+
+    except Exception as exc:
+        logger.exception(f"[twilio-webhook] Error en routing: {exc}")
+        try:
+            session.close()
+        except Exception:
+            pass
