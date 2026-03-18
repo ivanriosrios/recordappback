@@ -340,35 +340,3 @@ def check_inactive_clients():
         session.close()
 
 
-@celery_app.task(name="app.tasks.scheduler.check_appointment_reminders")
-def check_appointment_reminders():
-    """
-    Cada :30 de cada hora: busca citas CONFIRMED con reminder_sent=False
-    que sean mañana y encola send_appointment_reminder_task.
-    """
-    from app.models.appointment import Appointment, AppointmentStatus
-    from app.tasks.send_appointment_reminder import send_appointment_reminder_task
-    from datetime import date, timedelta
-
-    session = get_sync_session()
-    try:
-        tomorrow = date.today() + timedelta(days=1)
-
-        appointments = (
-            session.query(Appointment)
-            .filter(
-                Appointment.status == AppointmentStatus.CONFIRMED,
-                Appointment.appointment_date == tomorrow,
-                Appointment.reminder_sent.is_(False),
-            )
-            .all()
-        )
-
-        for appt in appointments:
-            send_appointment_reminder_task.delay(str(appt.id))
-
-        logger.info(f"[appt-reminders] {len(appointments)} recordatorios de cita encolados")
-    except Exception as exc:
-        logger.exception(f"[appt-reminders] Error: {exc}")
-    finally:
-        session.close()
