@@ -128,16 +128,46 @@ async def get_income_report(
         for row in by_payment_res.all()
     ]
 
+    # ── Período anterior (misma duración, desplazado atrás) ───────────────────
+    duration = end_dt - start_dt
+    prev_end_dt = start_dt
+    prev_start_dt = start_dt - duration
+
+    prev_filter = and_(
+        ServiceLog.business_id == business_id,
+        ServiceLog.completed_at >= prev_start_dt,
+        ServiceLog.completed_at <= prev_end_dt,
+        ServiceLog.price_charged.isnot(None),
+    )
+    prev_res = await db.execute(
+        select(
+            func.coalesce(func.sum(ServiceLog.price_charged), 0).label("total_revenue"),
+            func.count(ServiceLog.id).label("services_count"),
+        ).where(prev_filter)
+    )
+    prev = prev_res.one()
+    prev_rev = float(prev.total_revenue)
+    curr_rev = float(totals.total_revenue)
+
+    if prev_rev > 0:
+        growth_pct = round(((curr_rev - prev_rev) / prev_rev) * 100, 1)
+    else:
+        growth_pct = 100.0 if curr_rev > 0 else 0.0
+
     return {
         "period": period,
         "date_from": start_dt.date().isoformat(),
         "date_to": end_dt.date().isoformat(),
-        "total_revenue": float(totals.total_revenue),
+        "total_revenue": curr_rev,
         "services_with_price": totals.services_with_price,
         "all_services_count": all_services_count,
         "avg_ticket": float(totals.avg_ticket),
         "by_service": by_service,
         "by_payment": by_payment,
+        # Comparativa con período anterior
+        "prev_total_revenue": prev_rev,
+        "prev_services_count": prev.services_count,
+        "growth_pct": growth_pct,
     }
 
 
