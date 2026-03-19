@@ -39,6 +39,12 @@ class Business(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    # Automation settings (configurable per business)
+    inactive_days_threshold: Mapped[int] = mapped_column(default=60, nullable=False, server_default="60")
+    reactivation_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    birthday_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    follow_up_auto_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+
     # Relationships
     clients: Mapped[list["Client"]] = relationship("Client", back_populates="business", cascade="all, delete-orphan")
     services: Mapped[list["Service"]] = relationship("Service", back_populates="business", cascade="all, delete-orphan")

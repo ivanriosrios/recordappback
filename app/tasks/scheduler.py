@@ -158,17 +158,29 @@ def check_pending_follow_ups():
     """
     Corre cada 4h. Busca ServiceLogs sin follow_up_sent cuyo servicio
     tenga follow_up_days y cuya fecha ya venció, y los encola.
+    Respeta follow_up_auto_enabled por negocio.
     """
     from app.models.service_log import ServiceLog
     from app.models.service import Service
+    from app.models.business import Business
 
     session = get_sync_session()
     try:
         now = datetime.utcnow()
+
+        # IDs de negocios con follow_up_auto_enabled=True
+        enabled_business_ids = [
+            str(b.id) for b in session.query(Business.id).filter(Business.follow_up_auto_enabled == True).all()  # noqa: E712
+        ]
+
         logs = (
             session.query(ServiceLog)
             .join(Service, Service.id == ServiceLog.service_id)
-            .filter(Service.follow_up_days.isnot(None), ServiceLog.follow_up_sent == False)  # noqa: E712
+            .filter(
+                Service.follow_up_days.isnot(None),
+                ServiceLog.follow_up_sent == False,  # noqa: E712
+                ServiceLog.business_id.in_(enabled_business_ids),
+            )
             .limit(300)
             .all()
         )
@@ -204,19 +216,27 @@ def check_birthdays():
     """
     Revisa clientes que cumplen años hoy y encola mensajes de felicitación.
     Corre una vez al día a las 8am.
+    Respeta el setting birthday_enabled por negocio.
     """
     from app.models.client import Client, ClientStatus
+    from app.models.business import Business
     from sqlalchemy import extract
 
     session = get_sync_session()
     try:
         today = date.today()
-        # Buscar clientes activos cuyo birth_date coincida en mes y día
+
+        # Solo negocios con birthday_enabled=True
+        enabled_business_ids = [
+            str(b.id) for b in session.query(Business.id).filter(Business.birthday_enabled == True).all()  # noqa: E712
+        ]
+
         clients = (
             session.query(Client)
             .filter(
                 Client.status == ClientStatus.ACTIVE,
                 Client.birth_date.isnot(None),
+                Client.business_id.in_(enabled_business_ids),
                 extract("month", Client.birth_date) == today.month,
                 extract("day", Client.birth_date) == today.day,
             )
@@ -282,19 +302,30 @@ def check_appointment_reminders():
 @celery_app.task(name="app.tasks.scheduler.check_inactive_clients")
 def check_inactive_clients():
     """
-    Detecta clientes inactivos (sin servicio en >60 días) y envía reactivación.
+    Detecta clientes inactivos y envía reactivación.
     Corre una vez a la semana (lunes a las 10am).
+    Respeta inactive_days_threshold y reactivation_enabled por negocio.
     """
     from app.models.client import Client, ClientStatus
+    from app.models.business import Business
     from app.models.service_log import ServiceLog
     from app.models.reminder_log import ReminderLog
-    from sqlalchemy import select, func
+    from sqlalchemy import func
 
     session = get_sync_session()
     try:
-        cutoff = date.today() - timedelta(days=60)
+        from app.tasks.send_reactivation import send_reactivation_task
 
-        # Clientes activos cuyo último servicio fue hace >60 días o sin servicios
+        # Solo negocios con reactivación habilitada
+        businesses = (
+            session.query(Business)
+            .filter(Business.reactivation_enabled == True)  # noqa: E712
+            .all()
+        )
+
+        total_enqueued = 0
+
+        # Precalcular último servicio por cliente (una sola query)
         last_service = (
             session.query(
                 ServiceLog.client_id,
@@ -304,36 +335,37 @@ def check_inactive_clients():
             .subquery()
         )
 
-        stmt = (
-            session.query(Client)
-            .outerjoin(last_service, Client.id == last_service.c.client_id)
-            .filter(
-                Client.status == ClientStatus.ACTIVE,
-                (last_service.c.last_visit < cutoff) | (last_service.c.last_visit.is_(None)),
-            )
-        )
+        for business in businesses:
+            cutoff = date.today() - timedelta(days=business.inactive_days_threshold)
 
-        clients = stmt.all()
-
-        from app.tasks.send_reactivation import send_reactivation_task
-
-        enqueued = 0
-        for client in clients:
-            # Solo enviar si no se le envió reactivación en últimos 30 días (para no spamear)
-            recent = (
-                session.query(func.count(ReminderLog.id))
+            clients = (
+                session.query(Client)
+                .outerjoin(last_service, Client.id == last_service.c.client_id)
                 .filter(
-                    ReminderLog.sent_at > datetime.utcnow() - timedelta(days=30),
+                    Client.business_id == business.id,
+                    Client.status == ClientStatus.ACTIVE,
+                    (last_service.c.last_visit < cutoff) | (last_service.c.last_visit.is_(None)),
                 )
-                .scalar()
+                .limit(50)
+                .all()
             )
-            # Simple: limit to max 50 reactivations per run
-            if enqueued >= 50:
-                break
-            send_reactivation_task.delay(str(client.id), str(client.business_id))
-            enqueued += 1
 
-        logger.info(f"[reactivation] {enqueued} reactivaciones encoladas")
+            for client in clients:
+                # No spamear: máximo 1 reactivación por cliente cada 30 días
+                recent = (
+                    session.query(func.count(ReminderLog.id))
+                    .filter(
+                        ReminderLog.reminder_id.in_(
+                            session.query(func.cast(client.id, ReminderLog.reminder_id.type))
+                        ),
+                        ReminderLog.sent_at > datetime.utcnow() - timedelta(days=30),
+                    )
+                    .scalar()
+                )
+                send_reactivation_task.delay(str(client.id), str(business.id))
+                total_enqueued += 1
+
+        logger.info(f"[reactivation] {total_enqueued} reactivaciones encoladas en {len(businesses)} negocios")
     except Exception as exc:
         logger.exception(f"[reactivation] Error: {exc}")
     finally:

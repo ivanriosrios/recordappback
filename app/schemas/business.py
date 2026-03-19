@@ -18,6 +18,11 @@ class BusinessUpdate(BaseModel):
     business_type: str | None = None
     whatsapp_phone: str | None = None
     logo_url: str | None = None
+    # Automation settings
+    inactive_days_threshold: int | None = None
+    reactivation_enabled: bool | None = None
+    birthday_enabled: bool | None = None
+    follow_up_auto_enabled: bool | None = None
 
 
 class BusinessResponse(BaseModel):
@@ -30,5 +35,10 @@ class BusinessResponse(BaseModel):
     logo_url: str | None
     is_active: bool
     created_at: datetime
+    # Automation settings
+    inactive_days_threshold: int = 60
+    reactivation_enabled: bool = True
+    birthday_enabled: bool = True
+    follow_up_auto_enabled: bool = True
 
     model_config = {"from_attributes": True}
