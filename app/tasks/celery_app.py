@@ -17,6 +17,7 @@ celery_app = Celery(
         "app.tasks.send_birthday",
         "app.tasks.send_reactivation",
         "app.tasks.send_appointment_reminder",
+        "app.tasks.send_service_summary",
         "app.tasks.notify_pending_appointments",
         "app.tasks.scheduler",
     ],
