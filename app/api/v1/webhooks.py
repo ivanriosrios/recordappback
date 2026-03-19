@@ -537,14 +537,45 @@ def _process_twilio_message(from_phone: str, message_text: str, wa_message_id: s
             .first()
         )
 
-        session.close()
-
         if last_sent_log:
+            session.close()
             logger.info(f"[twilio-webhook] Cliente {client.id} con reminder pendiente → legacy handler")
             _process_message(from_phone, message_text, wa_message_id)
             return
 
-        # 3. Sin contexto previo → ChatbotEngine (maneja booking keywords o responde desconocido)
+        # 3. Verificar si hay una encuesta de follow-up pendiente de calificación
+        from app.models.service_log import ServiceLog
+        intent = _classify_response(message_text)
+        if intent in ("rated_good", "rated_bad"):
+            pending_survey = (
+                session.query(ServiceLog)
+                .filter(
+                    ServiceLog.client_id == client.id,
+                    ServiceLog.follow_up_sent == True,  # noqa: E712
+                    ServiceLog.rating.is_(None),
+                )
+                .order_by(desc(ServiceLog.completed_at))
+                .first()
+            )
+            if pending_survey:
+                from app.services.notifications import create_notification_sync
+                pending_survey.rating = 5 if intent == "rated_good" else 1
+                rating_text = "bien" if intent == "rated_good" else "mal"
+                create_notification_sync(
+                    session,
+                    client.business_id,
+                    "follow_up_rated",
+                    f"{client.display_name} calificó el servicio: {rating_text}",
+                    f"El cliente respondió la encuesta post-servicio con '{message_text}'.",
+                )
+                session.commit()
+                logger.info(f"[twilio-webhook] ServiceLog {pending_survey.id} calificado → {rating_text}")
+                session.close()
+                return
+
+        session.close()
+
+        # 4. Sin contexto previo → ChatbotEngine (maneja booking keywords o responde desconocido)
         logger.info(f"[twilio-webhook] Cliente {client.id} sin contexto → ChatbotEngine")
         engine = ChatbotEngine(_get_session())
         engine.handle_message(from_phone, message_text, wa_message_id)
