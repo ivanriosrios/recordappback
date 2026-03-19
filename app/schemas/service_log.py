@@ -38,5 +38,6 @@ class ServiceLogResponse(BaseModel):
     # Datos derivados para el frontend
     client_name: str | None = None
     service_name: str | None = None
+    follow_up_days: int | None = None
 
     model_config = {"from_attributes": True}

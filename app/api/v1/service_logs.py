@@ -95,15 +95,19 @@ async def list_service_logs(
         clients = {c.id: c.display_name for c in cresult.scalars().all()}
 
     services = {}
+    follow_up_days_map = {}
     if service_ids:
         sresult = await db.execute(select(Service).where(Service.id.in_(service_ids)))
-        services = {s.id: s.name for s in sresult.scalars().all()}
+        for s in sresult.scalars().all():
+            services[s.id] = s.name
+            follow_up_days_map[s.id] = s.follow_up_days
 
     return [
         ServiceLogResponse(
             **log.__dict__,
             client_name=clients.get(log.client_id),
             service_name=services.get(log.service_id),
+            follow_up_days=follow_up_days_map.get(log.service_id),
         )
         for log in logs
     ]
