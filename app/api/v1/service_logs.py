@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from datetime import timedelta
+from typing import Optional
 
 from app.core.database import get_db
 from app.core.deps import verify_business_access
@@ -59,10 +60,29 @@ async def create_service_log(business_id: UUID, data: ServiceLogCreate, _biz: Bu
 
 
 @router.get("/", response_model=list[ServiceLogResponse])
-async def list_service_logs(business_id: UUID, _biz: Business = Depends(verify_business_access), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(ServiceLog).where(ServiceLog.business_id == business_id).order_by(ServiceLog.completed_at.desc())
-    )
+async def list_service_logs(
+    business_id: UUID,
+    rating: Optional[int] = Query(None, description="Filtrar por calificación (1-5). Usa 0 para logs sin calificación."),
+    follow_up_pending: Optional[bool] = Query(None, description="True = follow-up enviado pero sin calificación"),
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(ServiceLog).where(ServiceLog.business_id == business_id)
+
+    if rating is not None:
+        if rating == 0:
+            query = query.where(ServiceLog.rating.is_(None))
+        else:
+            query = query.where(ServiceLog.rating == rating)
+
+    if follow_up_pending is True:
+        query = query.where(
+            ServiceLog.follow_up_sent.is_(True),
+            ServiceLog.rating.is_(None),
+        )
+
+    query = query.order_by(ServiceLog.completed_at.desc())
+    result = await db.execute(query)
     logs = result.scalars().all()
 
     # Prefetch nombres mínimos

@@ -293,23 +293,33 @@ def _process_message(from_phone: str, message_text: str, wa_message_id: str | No
         # Actualizar ServiceLog con calificación (bien/mal)
         if intent in ("rated_good", "rated_bad"):
             from app.models.service_log import ServiceLog
+            from app.models.service import Service
             from app.services.notifications import create_notification_sync
 
             log = (
                 session.query(ServiceLog)
-                .filter(ServiceLog.client_id == client.id, ServiceLog.follow_up_sent == True)  # noqa: E712
+                .filter(
+                    ServiceLog.client_id == client.id,
+                    ServiceLog.follow_up_sent == True,  # noqa: E712
+                    ServiceLog.rating.is_(None),
+                )
                 .order_by(desc(ServiceLog.completed_at))
                 .first()
             )
             if log:
                 log.rating = 5 if intent == "rated_good" else 1
                 rating_text = "bien" if intent == "rated_good" else "mal"
+                emoji = "⭐" if intent == "rated_good" else "😟"
+                service_name = ""
+                if log.service_id:
+                    svc = session.get(Service, str(log.service_id))
+                    service_name = f" ({svc.name})" if svc else ""
                 create_notification_sync(
                     session,
                     client.business_id,
                     "follow_up_rated",
-                    f"{client.display_name} calificó el servicio: {rating_text}",
-                    f"El cliente ha respondido la encuesta post-servicio.",
+                    f"{emoji} {client.display_name} calificó el servicio: {rating_text}",
+                    f"Servicio{service_name} — respondió '{message_text}' a la encuesta post-servicio.",
                 )
                 session.commit()
                 logger.info(f"[webhook] ServiceLog {log.id} rating → {log.rating}")
@@ -560,15 +570,21 @@ def _process_twilio_message(from_phone: str, message_text: str, wa_message_id: s
                 .first()
             )
             if pending_survey:
+                from app.models.service import Service
                 from app.services.notifications import create_notification_sync
                 pending_survey.rating = 5 if intent == "rated_good" else 1
                 rating_text = "bien" if intent == "rated_good" else "mal"
+                emoji = "⭐" if intent == "rated_good" else "😟"
+                service_name = ""
+                if pending_survey.service_id:
+                    svc = session.get(Service, str(pending_survey.service_id))
+                    service_name = f" ({svc.name})" if svc else ""
                 create_notification_sync(
                     session,
                     client.business_id,
                     "follow_up_rated",
-                    f"{client.display_name} calificó el servicio: {rating_text}",
-                    f"El cliente respondió la encuesta post-servicio con '{message_text}'.",
+                    f"{emoji} {client.display_name} calificó el servicio: {rating_text}",
+                    f"Servicio{service_name} — respondió '{message_text}' a la encuesta post-servicio.",
                 )
                 session.commit()
                 logger.info(f"[twilio-webhook] ServiceLog {pending_survey.id} calificado → {rating_text}")
