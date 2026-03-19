@@ -15,8 +15,9 @@ class NotificationType(str, enum.Enum):
     FOLLOW_UP_RATED = "follow_up_rated"
     BIRTHDAY_SENT = "birthday_sent"
     REACTIVATION_SENT = "reactivation_sent"
-    BOOKING_REQUEST = "booking_request"   # Cliente quiere agendar (sin chatbot activo)
-    BOOKING_STARTED = "booking_started"   # Cliente inició flujo de agendamiento
+    BOOKING_REQUEST = "booking_request"        # Cliente quiere agendar (sin chatbot activo)
+    BOOKING_STARTED = "booking_started"        # Cliente inició flujo de agendamiento
+    APPOINTMENT_REQUESTED = "appointment_requested"  # Cliente creó cita via chatbot
 
 
 class Notification(Base):

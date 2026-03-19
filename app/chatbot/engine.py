@@ -353,7 +353,7 @@ class ChatbotEngine:
         create_notification_sync(
             self.session,
             business.id,
-            "appointment_requested",
+            NotificationType.APPOINTMENT_REQUESTED,
             f"Nueva cita solicitada: {client.display_name}",
             f"{client.display_name} quiere agendar *{service_name}* el {date_str} ({time_str}).",
         )

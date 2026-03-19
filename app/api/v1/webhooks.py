@@ -436,13 +436,13 @@ async def receive_twilio_webhook(request: Request):
     - MessageSid: ID único del mensaje
     - SmsStatus / MessageStatus: delivered, read, etc.
     """
-    body = await request.body()
-
-    if not _validate_twilio_signature(request, body):
-        logger.warning("[twilio-webhook] Firma inválida — rechazado")
-        raise HTTPException(status_code=403, detail="Firma Twilio inválida")
-
     try:
+        body = await request.body()
+
+        if not _validate_twilio_signature(request, body):
+            logger.warning("[twilio-webhook] Firma inválida — rechazado")
+            raise HTTPException(status_code=403, detail="Firma Twilio inválida")
+
         form = await request.form()
         from_number = form.get("From", "")
         message_body = form.get("Body", "")
@@ -466,8 +466,10 @@ async def receive_twilio_webhook(request: Request):
         if message_body:
             _process_twilio_message(phone, message_body, message_sid)
 
+    except HTTPException:
+        raise  # Re-raise 403 de firma inválida sin modificar
     except Exception as exc:
-        logger.exception(f"[twilio-webhook] Error procesando evento: {exc}")
+        logger.exception(f"[twilio-webhook] Error inesperado: {exc}")
 
     return {"status": "ok"}
 
