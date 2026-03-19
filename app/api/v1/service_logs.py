@@ -164,3 +164,52 @@ async def complete_service_log(
         client_name=client.display_name if client else None,
         service_name=service.name if service else None,
     )
+
+
+@router.post("/{log_id}/send_followup", status_code=status.HTTP_202_ACCEPTED)
+async def send_follow_up_now(
+    business_id: UUID,
+    log_id: UUID,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Envía la encuesta post-servicio inmediatamente para un ServiceLog pendiente."""
+    result = await db.execute(
+        select(ServiceLog).where(
+            ServiceLog.id == log_id,
+            ServiceLog.business_id == business_id,
+        )
+    )
+    log = result.scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Registro de servicio no encontrado")
+    if log.follow_up_sent:
+        raise HTTPException(status_code=400, detail="La encuesta ya fue enviada")
+
+    send_follow_up_task.delay(str(log.id))
+    return {"message": "Encuesta encolada para envío inmediato", "log_id": str(log.id)}
+
+
+@router.post("/{log_id}/skip_followup", status_code=status.HTTP_200_OK)
+async def skip_follow_up(
+    business_id: UUID,
+    log_id: UUID,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancela/omite la encuesta post-servicio para un ServiceLog (marca como enviado sin enviar)."""
+    result = await db.execute(
+        select(ServiceLog).where(
+            ServiceLog.id == log_id,
+            ServiceLog.business_id == business_id,
+        )
+    )
+    log = result.scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Registro de servicio no encontrado")
+    if log.follow_up_sent:
+        raise HTTPException(status_code=400, detail="La encuesta ya fue procesada")
+
+    log.follow_up_sent = True
+    await db.commit()
+    return {"message": "Encuesta cancelada", "log_id": str(log.id)}
