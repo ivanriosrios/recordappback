@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     TWILIO_API_KEY_SECRET: str = ""
     TWILIO_WHATSAPP_NUMBER: str = ""  # formato: whatsapp:+573001234567
     TWILIO_WEBHOOK_AUTH_TOKEN: str = ""  # para validar firma de webhooks
+    TWILIO_CONTENT_SID_ENCUESTA_SERVICIO: str = ""  # opcional: content_sid del template aprobado
 
     # Proveedor de mensajería activo: "twilio" o "meta"
     MESSAGING_PROVIDER: str = "twilio"

@@ -27,6 +27,13 @@ class TwilioProvider(MessagingProvider):
         self.api_key_sid = settings.TWILIO_API_KEY_SID
         self.api_key_secret = settings.TWILIO_API_KEY_SECRET
         self.from_number = settings.TWILIO_WHATSAPP_NUMBER  # whatsapp:+1234567890
+        # Mapeo opcional de meta_template_name -> content_sid aprobado en Twilio Content API
+        self.content_sids = {
+            "encuesta_servicio": settings.TWILIO_CONTENT_SID_ENCUESTA_SERVICIO,
+        }
+
+        # Filtrar vacíos para evitar usar strings en blanco
+        self.content_sids = {k: v for k, v in self.content_sids.items() if v}
 
         # Twilio client con API Key (más seguro que Auth Token)
         self.client = TwilioClient(
@@ -60,27 +67,42 @@ class TwilioProvider(MessagingProvider):
         wa_to = self._whatsapp_to(to)
 
         try:
-            # Construir el body del mensaje
-            if body_text:
-                # El caller ya renderizó el template — úsarlo directamente
-                final_body = body_text
-            elif components:
-                # Extraer variables del body de los components (formato Meta)
+            # Preferir Content API si tenemos content_sid registrado para este template
+            content_sid = self.content_sids.get(template_name)
+            if content_sid:
                 content_variables = {}
-                for comp in components:
-                    if comp.get("type") == "body":
-                        for idx, param in enumerate(comp.get("parameters", []), start=1):
-                            content_variables[str(idx)] = param.get("text", "")
-                body_parts = [content_variables[k] for k in sorted(content_variables.keys())]
-                final_body = " | ".join(body_parts) if body_parts else f"[{template_name}]"
-            else:
-                final_body = f"[{template_name}]"
+                if components:
+                    for comp in components:
+                        if comp.get("type") == "body":
+                            for idx, param in enumerate(comp.get("parameters", []), start=1):
+                                content_variables[str(idx)] = param.get("text", "")
 
-            message = self.client.messages.create(
-                from_=self.from_number,
-                to=wa_to,
-                body=final_body,
-            )
+                message = self.client.messages.create(
+                    from_=self.from_number,
+                    to=wa_to,
+                    content_sid=content_sid,
+                    content_variables=content_variables or None,
+                )
+            else:
+                # Fallback: enviar como texto plano (puede fallar fuera de ventana de 24h)
+                if body_text:
+                    final_body = body_text
+                elif components:
+                    content_variables = {}
+                    for comp in components:
+                        if comp.get("type") == "body":
+                            for idx, param in enumerate(comp.get("parameters", []), start=1):
+                                content_variables[str(idx)] = param.get("text", "")
+                    body_parts = [content_variables[k] for k in sorted(content_variables.keys())]
+                    final_body = " | ".join(body_parts) if body_parts else f"[{template_name}]"
+                else:
+                    final_body = f"[{template_name}]"
+
+                message = self.client.messages.create(
+                    from_=self.from_number,
+                    to=wa_to,
+                    body=final_body,
+                )
 
             logger.info(
                 f"[Twilio] Template '{template_name}' enviado a {wa_to} — sid={message.sid}"
