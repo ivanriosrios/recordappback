@@ -15,6 +15,12 @@ class PlanType(str, enum.Enum):
     PRO = "pro"
 
 
+class WhatsAppStatus(str, enum.Enum):
+    NOT_CONFIGURED = "not_configured"  # Nunca configurado
+    SANDBOX = "sandbox"                # Usando sandbox de Twilio para pruebas
+    ACTIVE = "active"                  # WhatsApp Business API aprobado y activo
+
+
 class Business(Base):
     __tablename__ = "businesses"
     __table_args__ = (
@@ -38,6 +44,14 @@ class Business(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Estado de configuración de WhatsApp Business
+    whatsapp_status: Mapped[WhatsAppStatus] = mapped_column(
+        SAEnum(WhatsAppStatus, name="whatsappstatus", values_callable=lambda e: [x.value for x in e], create_type=False),
+        default=WhatsAppStatus.NOT_CONFIGURED,
+        nullable=False,
+        server_default="not_configured",
+    )
 
     # Automation settings (configurable per business)
     inactive_days_threshold: Mapped[int] = mapped_column(default=60, nullable=False, server_default="60")

@@ -288,30 +288,62 @@ async def update_appointment(
     business_id: UUID,
     appointment_id: UUID,
     data: AppointmentUpdate,
+    notify: bool = Query(True, description="Notificar al cliente por WhatsApp del cambio"),
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """Actualiza campos de una cita (hora, turno, o estado)."""
+    """Actualiza campos de una cita (hora, turno, notas). Notifica al cliente si notify=true."""
     appt = await _get_appointment_or_404(db, business_id, appointment_id)
 
     update_data = data.model_dump(exclude_unset=True)
+    date_changed = "appointment_date" in update_data or "appointment_time" in update_data or "shift" in update_data
+
     for field, value in update_data.items():
         setattr(appt, field, value)
 
     await db.flush()
     await db.refresh(appt)
+
+    # Solo notificar si cambió la fecha/hora y la cita sigue activa
+    if notify and date_changed and appt.status in (AppointmentStatus.CONFIRMED, AppointmentStatus.REQUESTED):
+        await _notify_client_appointment(db, appt, action="updated")
+
     return appt
 
 
 # ─── Helper de notificación ───────────────────────────────────────────────────
 
+@router.post("/{appointment_id}/cancel", response_model=AppointmentResponse)
+async def cancel_appointment(
+    business_id: UUID,
+    appointment_id: UUID,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancela una cita (requested o confirmed). Notifica al cliente."""
+    appt = await _get_appointment_or_404(db, business_id, appointment_id)
+
+    if appt.status not in (AppointmentStatus.REQUESTED, AppointmentStatus.CONFIRMED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede cancelar una cita en estado '{appt.status}'"
+        )
+
+    appt.status = AppointmentStatus.CANCELLED
+    await db.flush()
+    await db.refresh(appt)
+
+    await _notify_client_appointment(db, appt, action="cancelled")
+    return appt
+
+
 async def _notify_client_appointment(
     db: AsyncSession,
     appt: Appointment,
-    action: str,  # "confirmed" | "rejected"
+    action: str,  # "confirmed" | "rejected" | "cancelled" | "updated"
 ) -> None:
-    """Envía WhatsApp al cliente informando la confirmación o rechazo de su cita."""
-    from app.chatbot.flows.booking import DAY_NAMES, MONTH_NAMES, _format_time_display
+    """Envía WhatsApp al cliente informando cambios en su cita."""
+    from app.chatbot.flows.booking import DAY_NAMES, MONTH_NAMES
     from app.chatbot import messages as MSG
     from app.messaging import get_messaging_provider
 
@@ -336,8 +368,6 @@ async def _notify_client_appointment(
         month = MONTH_NAMES[appt.appointment_date.month]
         date_str = f"{day_name} {appt.appointment_date.day} {month}"
 
-        # Formatear hora/turno
-        from app.models.appointment import AppointmentShift
         from app.chatbot.flows.booking import SHIFT_LABELS
         if appt.appointment_time:
             time_str = str(appt.appointment_time)[:5]
@@ -354,6 +384,17 @@ async def _notify_client_appointment(
                 date=date_str,
                 time=time_str,
                 business=business_name,
+            )
+        elif action == "cancelled":
+            msg = (
+                f"❌ Tu cita de *{service_name}* para el *{date_str}* en *{business_name}* "
+                f"ha sido cancelada. Contáctanos si deseas reagendar."
+            )
+        elif action == "updated":
+            msg = (
+                f"✏️ Tu cita de *{service_name}* ha sido actualizada.\n"
+                f"📅 Nueva fecha: *{date_str}* a las *{time_str}*\n"
+                f"— {business_name}"
             )
         else:
             msg = MSG.APPOINTMENT_REJECTED_CLIENT.format(date=date_str)

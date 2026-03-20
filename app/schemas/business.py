@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from uuid import UUID
 from datetime import datetime
-from app.models.business import PlanType
+from app.models.business import PlanType, WhatsAppStatus
 
 
 class BusinessCreate(BaseModel):
@@ -18,6 +18,8 @@ class BusinessUpdate(BaseModel):
     business_type: str | None = None
     whatsapp_phone: str | None = None
     logo_url: str | None = None
+    # WhatsApp status
+    whatsapp_status: WhatsAppStatus | None = None
     # Automation settings
     inactive_days_threshold: int | None = None
     reactivation_enabled: bool | None = None
@@ -35,6 +37,7 @@ class BusinessResponse(BaseModel):
     logo_url: str | None
     is_active: bool
     created_at: datetime
+    whatsapp_status: WhatsAppStatus = WhatsAppStatus.NOT_CONFIGURED
     # Automation settings
     inactive_days_threshold: int = 60
     reactivation_enabled: bool = True

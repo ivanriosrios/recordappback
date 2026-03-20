@@ -30,24 +30,35 @@ def check_and_enqueue_reminders():
     - next_send_date <= hoy → es hora de enviar
     - notify_days_before: si el recordatorio avisa N días antes,
       la fecha real de envío es next_send_date - notify_days_before
+    Solo encola para negocios con whatsapp_status='active'.
     """
     from app.tasks.send_reminder import send_reminder_task
     from app.models.reminder import Reminder, ReminderStatus
+    from app.models.client import Client
+    from app.models.business import Business, WhatsAppStatus
     from sqlalchemy import and_
 
     session = get_sync_session()
     try:
         today = date.today()
 
+        # Solo negocios con WhatsApp activo
+        active_business_ids = [
+            str(b.id) for b in session.query(Business.id)
+            .filter(Business.whatsapp_status == WhatsAppStatus.ACTIVE.value)
+            .all()
+        ]
+
         # Fecha de disparo = next_send_date - notify_days_before
         # Buscamos reminders donde hoy >= fecha de disparo
         reminders = (
             session.query(Reminder)
+            .join(Client, Client.id == Reminder.client_id)
             .filter(
                 and_(
-                    # Usar value en vez del Enum para evitar pasar 'ACTIVE' (nombre) en vez de 'active' (valor)
                     Reminder.status == ReminderStatus.ACTIVE.value,
-                    Reminder.next_send_date <= today + timedelta(days=3),  # ventana holgada
+                    Reminder.next_send_date <= today + timedelta(days=3),
+                    Client.business_id.in_(active_business_ids),
                 )
             )
             .all()
@@ -168,9 +179,13 @@ def check_pending_follow_ups():
     try:
         now = datetime.utcnow()
 
-        # IDs de negocios con follow_up_auto_enabled=True
+        from app.models.business import WhatsAppStatus
+        # IDs de negocios con follow_up_auto_enabled=True Y WhatsApp activo
         enabled_business_ids = [
-            str(b.id) for b in session.query(Business.id).filter(Business.follow_up_auto_enabled == True).all()  # noqa: E712
+            str(b.id) for b in session.query(Business.id).filter(
+                Business.follow_up_auto_enabled == True,  # noqa: E712
+                Business.whatsapp_status == WhatsAppStatus.ACTIVE.value,
+            ).all()
         ]
 
         logs = (
@@ -226,9 +241,13 @@ def check_birthdays():
     try:
         today = date.today()
 
-        # Solo negocios con birthday_enabled=True
+        from app.models.business import WhatsAppStatus
+        # Solo negocios con birthday_enabled=True Y WhatsApp activo
         enabled_business_ids = [
-            str(b.id) for b in session.query(Business.id).filter(Business.birthday_enabled == True).all()  # noqa: E712
+            str(b.id) for b in session.query(Business.id).filter(
+                Business.birthday_enabled == True,  # noqa: E712
+                Business.whatsapp_status == WhatsAppStatus.ACTIVE.value,
+            ).all()
         ]
 
         clients = (
@@ -263,6 +282,7 @@ def check_appointment_reminders():
     que aún no tengan reminder_sent=True y encola el recordatorio.
     """
     from app.models.appointment import Appointment, AppointmentStatus
+    from app.models.business import Business, WhatsAppStatus
     from app.tasks.send_appointment_reminder import send_appointment_reminder_task
     from sqlalchemy import and_
     from datetime import timedelta
@@ -271,6 +291,13 @@ def check_appointment_reminders():
     try:
         tomorrow = date.today() + timedelta(days=1)
 
+        # Solo negocios con WhatsApp activo
+        active_business_ids = [
+            str(b.id) for b in session.query(Business.id)
+            .filter(Business.whatsapp_status == WhatsAppStatus.ACTIVE.value)
+            .all()
+        ]
+
         appointments = (
             session.query(Appointment)
             .filter(
@@ -278,6 +305,7 @@ def check_appointment_reminders():
                     Appointment.status == AppointmentStatus.CONFIRMED,
                     Appointment.appointment_date == tomorrow,
                     Appointment.reminder_sent == False,  # noqa: E712
+                    Appointment.business_id.in_(active_business_ids),
                 )
             )
             .all()
@@ -316,10 +344,14 @@ def check_inactive_clients():
     try:
         from app.tasks.send_reactivation import send_reactivation_task
 
-        # Solo negocios con reactivación habilitada
+        from app.models.business import WhatsAppStatus
+        # Solo negocios con reactivación habilitada Y WhatsApp activo
         businesses = (
             session.query(Business)
-            .filter(Business.reactivation_enabled == True)  # noqa: E712
+            .filter(
+                Business.reactivation_enabled == True,  # noqa: E712
+                Business.whatsapp_status == WhatsAppStatus.ACTIVE.value,
+            )
             .all()
         )
 

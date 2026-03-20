@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import csv
+import io
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -106,3 +109,79 @@ async def update_client(business_id: UUID, client_id: UUID, data: ClientUpdate, 
     await db.flush()
     await db.refresh(client)
     return client
+
+
+@router.post("/bulk-upload", status_code=status.HTTP_200_OK)
+async def bulk_upload_clients(
+    business_id: UUID,
+    file: UploadFile = File(...),
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Carga masiva de clientes desde CSV.
+    Columnas: nombre (req), telefono (req), email (opt), notas (opt)
+    Retorna un resumen: created, skipped, errors.
+    """
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos .csv")
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")  # utf-8-sig maneja BOM de Excel
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+
+    # Normalizar nombres de columna a minúsculas sin espacios
+    def normalize_key(row):
+        return {k.strip().lower(): v.strip() if v else "" for k, v in row.items()}
+
+    # Obtener teléfonos existentes para evitar duplicados
+    existing = await db.execute(
+        select(Client.phone).where(Client.business_id == business_id)
+    )
+    existing_phones = {row[0] for row in existing.fetchall()}
+
+    created = 0
+    skipped = 0
+    errors = []
+
+    for i, raw_row in enumerate(reader, start=2):  # fila 2 = primera de datos
+        row = normalize_key(raw_row)
+
+        name = row.get("nombre") or row.get("name") or row.get("display_name", "")
+        phone = row.get("telefono") or row.get("phone") or row.get("teléfono", "")
+        email = row.get("email") or row.get("correo", "") or None
+        notes = row.get("notas") or row.get("notes", "") or None
+
+        if not name or not phone:
+            errors.append({"row": i, "reason": "Nombre y teléfono son obligatorios"})
+            continue
+
+        # Normalizar teléfono: quitar espacios y guiones
+        phone_clean = phone.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        # Agregar +57 si es número colombiano de 10 dígitos sin prefijo
+        if phone_clean.isdigit() and len(phone_clean) == 10:
+            phone_clean = "57" + phone_clean
+
+        if phone_clean in existing_phones:
+            skipped += 1
+            continue
+
+        client = Client(
+            business_id=business_id,
+            display_name=name,
+            phone=phone_clean,
+            email=email or None,
+            notes=notes or None,
+            status=ClientStatus.ACTIVE,
+            preferred_channel=ChannelType.WHATSAPP,
+        )
+        db.add(client)
+        existing_phones.add(phone_clean)
+        created += 1
+
+    await db.flush()
+    return {"created": created, "skipped": skipped, "errors": errors, "total_rows": created + skipped + len(errors)}

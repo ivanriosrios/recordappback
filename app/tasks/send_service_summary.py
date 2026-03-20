@@ -72,40 +72,25 @@ def send_service_summary_task(self, service_log_id: str):
         service_name = service.name if service else "Servicio"
         business_name = business.name if business else "el negocio"
 
-        # Construir variables para template aprobado (Content API) o fallback
         price_str = f"${log.price_charged:,.0f}" if log.price_charged is not None else "-"
         method_label = PAYMENT_LABELS.get(log.payment_method, log.payment_method.title()) if log.payment_method else "-"
-        notes = log.service_notes if log.service_notes else "-"
+        notes_str = log.service_notes if log.service_notes else "-"
 
-        # Texto plano (fallback si no hay content_sid)
+        # Mensaje de texto plano — enviado como mensaje libre (dentro de ventana 24h)
         lines = [
-            f"✅ Resumen de servicio — {business_name}",
+            f"✅ *Resumen de servicio — {business_name}*",
             "",
             f"Servicio: {service_name}",
             f"Total cobrado: {price_str}",
             f"Pago: {method_label}",
-            f"Notas: {notes}",
+            f"Notas: {notes_str}",
             "",
             f"Gracias por tu visita, {client.display_name}. ¡Te esperamos pronto! 🙌",
         ]
         message = "\n".join(lines)
 
         provider = get_messaging_provider()
-        components = provider.build_body_components(
-            business_name,
-            service_name,
-            price_str,
-            method_label,
-            notes,
-            client.display_name,
-        )
-
-        result = provider.send_template(
-            to=client.phone,
-            template_name="resumen_servicio",
-            components=components,
-            body_text=message,  # fallback si no hay content_sid
-        )
+        result = provider.send_text(to=client.phone, body=message)
 
         if result.success:
             log.summary_sent = True
