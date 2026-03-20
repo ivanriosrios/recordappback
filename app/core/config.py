@@ -26,8 +26,14 @@ class Settings(BaseSettings):
     TWILIO_API_KEY_SECRET: str = ""
     TWILIO_WHATSAPP_NUMBER: str = ""  # formato: whatsapp:+573001234567
     TWILIO_WEBHOOK_AUTH_TOKEN: str = ""  # para validar firma de webhooks
-    TWILIO_CONTENT_SID_ENCUESTA_SERVICIO: str = ""  # opcional: content_sid del template aprobado
-    TWILIO_CONTENT_SID_RESUMEN_SERVICIO: str = ""  # opcional: content_sid del resumen de servicio
+    # Content SIDs de templates aprobados por WhatsApp (vía Twilio Content API)
+    # Una vez que el template es aprobado por Meta, copia el SID aquí
+    TWILIO_CONTENT_SID_RECORDATORIO_CITA: str = ""
+    TWILIO_CONTENT_SID_FELIZ_CUMPLEANOS: str = ""
+    TWILIO_CONTENT_SID_ENCUESTA_SERVICIO: str = ""
+    TWILIO_CONTENT_SID_REACTIVACION_CLIENTE: str = ""
+    TWILIO_CONTENT_SID_CONFIRMACION_OPTOUT: str = ""
+    TWILIO_CONTENT_SID_RESUMEN_SERVICIO: str = ""  # reservado para futuro uso
 
     # Proveedor de mensajería activo: "twilio" o "meta"
     MESSAGING_PROVIDER: str = "twilio"

@@ -2,15 +2,16 @@
 Task Celery: enviar resumen de servicio al cliente por WhatsApp (KOS-55).
 
 El resumen incluye:
-- Nombre del servicio realizado
-- Precio cobrado
-- Método de pago
-- Notas del servicio (si hay)
-- Nombre del negocio
+- Nombre del negocio        → {{1}}
+- Nombre del servicio       → {{2}}
+- Precio cobrado            → {{3}}
+- Método de pago            → {{4}}
+- Notas del servicio        → {{5}}
+- Nombre del cliente        → {{6}}
 
-Es un texto libre (no un template aprobado por Meta/Twilio) enviado
-como mensaje de texto normal. Solo es posible dentro de las 24h de
-la última interacción del cliente (ventana de sesión de WhatsApp).
+Si TWILIO_CONTENT_SID_RESUMEN_SERVICIO está configurado en Railway,
+usa el template aprobado por WhatsApp (funciona fuera de la ventana 24h).
+Si no, cae en texto libre (solo dentro de la ventana de sesión activa).
 """
 import logging
 from datetime import datetime
@@ -76,21 +77,40 @@ def send_service_summary_task(self, service_log_id: str):
         method_label = PAYMENT_LABELS.get(log.payment_method, log.payment_method.title()) if log.payment_method else "-"
         notes_str = log.service_notes if log.service_notes else "-"
 
-        # Mensaje de texto plano — enviado como mensaje libre (dentro de ventana 24h)
-        lines = [
-            f"✅ *Resumen de servicio — {business_name}*",
-            "",
-            f"Servicio: {service_name}",
-            f"Total cobrado: {price_str}",
-            f"Pago: {method_label}",
-            f"Notas: {notes_str}",
-            "",
-            f"Gracias por tu visita, {client.display_name}. ¡Te esperamos pronto! 🙌",
-        ]
-        message = "\n".join(lines)
-
         provider = get_messaging_provider()
-        result = provider.send_text(to=client.phone, body=message)
+
+        # Componentes del template — variables {{1}} … {{6}} en orden
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": business_name},   # {{1}}
+                    {"type": "text", "text": service_name},    # {{2}}
+                    {"type": "text", "text": price_str},       # {{3}}
+                    {"type": "text", "text": method_label},    # {{4}}
+                    {"type": "text", "text": notes_str},       # {{5}}
+                    {"type": "text", "text": client.display_name},  # {{6}}
+                ],
+            }
+        ]
+
+        # Texto de fallback (usado si no hay content_sid configurado)
+        fallback_body = (
+            f"✅ *Resumen de servicio — {business_name}*\n\n"
+            f"Servicio: {service_name}\n"
+            f"Total cobrado: {price_str}\n"
+            f"Pago: {method_label}\n"
+            f"Notas: {notes_str}\n\n"
+            f"Gracias por tu visita, {client.display_name}. ¡Te esperamos pronto! 🙌"
+        )
+
+        result = provider.send_template(
+            to=client.phone,
+            template_name="resumen_servicio",
+            language_code="es_CO",
+            components=components,
+            body_text=fallback_body,
+        )
 
         if result.success:
             log.summary_sent = True

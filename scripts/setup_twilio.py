@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RecordApp — Script de configuración completa de Twilio.
+OlaApp — Script de configuración completa de Twilio.
 
 Ejecuta esto desde tu máquina local (NO desde Railway/Docker):
 
@@ -11,7 +11,7 @@ Ejecuta esto desde tu máquina local (NO desde Railway/Docker):
 Este script:
 1. Verifica la conexión con tu cuenta Twilio
 2. Lista tus números de WhatsApp disponibles
-3. Crea los 5 Content Templates necesarios para RecordApp
+3. Crea los 5 Content Templates necesarios para OlaApp
 4. Configura el webhook de mensajes entrantes
 5. Envía un mensaje de prueba
 """
@@ -110,7 +110,7 @@ def step2_list_numbers():
 # Templates de RecordApp mapeados al formato de Twilio Content API
 TEMPLATES = [
     {
-        "friendly_name": "RecordApp - Recordatorio de Cita",
+        "friendly_name": "OlaApp - Recordatorio de Cita",
         "language": "es",
         "variables": {"1": "Juan", "2": "Corte de cabello", "3": "Barbería El Patrón"},
         "types": {
@@ -118,10 +118,10 @@ TEMPLATES = [
                 "body": "Hola {{1}} 👋, te recordamos que tienes programado tu servicio de *{{2}}* en *{{3}}*. ¿Confirmas tu asistencia? Responde *SI* o *NO*."
             }
         },
-        "meta_name": "recordatorio_cita",  # para mapeo interno RecordApp
+        "meta_name": "recordatorio_cita",
     },
     {
-        "friendly_name": "RecordApp - Encuesta Post-Servicio",
+        "friendly_name": "OlaApp - Encuesta Post-Servicio",
         "language": "es",
         "variables": {"1": "Juan", "2": "Barbería El Patrón", "3": "Corte de cabello"},
         "types": {
@@ -132,7 +132,7 @@ TEMPLATES = [
         "meta_name": "encuesta_servicio",
     },
     {
-        "friendly_name": "RecordApp - Feliz Cumpleaños",
+        "friendly_name": "OlaApp - Feliz Cumpleaños",
         "language": "es",
         "variables": {"1": "Juan", "2": "Barbería El Patrón"},
         "types": {
@@ -143,7 +143,7 @@ TEMPLATES = [
         "meta_name": "feliz_cumpleanos",
     },
     {
-        "friendly_name": "RecordApp - Reactivación Cliente",
+        "friendly_name": "OlaApp - Reactivación Cliente",
         "language": "es",
         "variables": {"1": "Juan", "2": "Barbería El Patrón"},
         "types": {
@@ -154,12 +154,12 @@ TEMPLATES = [
         "meta_name": "reactivacion_cliente",
     },
     {
-        "friendly_name": "RecordApp - Confirmación Opt-Out",
+        "friendly_name": "OlaApp - Confirmación Opt-Out",
         "language": "es",
         "variables": {"1": "Juan", "2": "Barbería El Patrón"},
         "types": {
             "twilio/text": {
-                "body": "{{1}}, hemos registrado tu solicitud. Ya no recibirás mensajes de *{{2}}*. Si cambias de opinión, escríbenos en cualquier momento. ¡Gracias!"
+                "body": "Hola {{1}}, hemos registrado tu solicitud. Ya no recibirás mensajes de *{{2}}*. Si cambias de opinión, escríbenos en cualquier momento. ¡Gracias!"
             }
         },
         "meta_name": "confirmacion_optout",
@@ -210,7 +210,7 @@ def step3_create_content_templates():
         time.sleep(0.5)  # Rate limiting
 
     if created:
-        print("\n  📋 Mapeo content_sid para RecordApp:")
+        print("\n  📋 Mapeo content_sid para OlaApp:")
         for meta_name, sid in created.items():
             print(f"     {meta_name} → {sid}")
 
@@ -282,7 +282,7 @@ def step5_send_test_message():
             data={
                 "From": WHATSAPP_FROM,
                 "To": to_number,
-                "Body": "🚀 ¡Hola! Este es un mensaje de prueba de RecordApp vía Twilio. Si recibes esto, la integración funciona correctamente. ✅",
+                "Body": "🚀 ¡Hola! Este es un mensaje de prueba de OlaApp vía Twilio. Si recibes esto, la integración funciona correctamente. ✅",
             },
         )
 
@@ -312,17 +312,26 @@ def step5_send_test_message():
 
 # ─── RESUMEN .env ────────────────────────────────────────────────────────
 
-def print_env_summary():
+def print_env_summary(content_sids: dict = None):
+    content_sids = content_sids or {}
+    sid_lines = "\n".join(
+        f"TWILIO_CONTENT_SID_{meta.upper()}={sid}"
+        for meta, sid in content_sids.items()
+    )
     print("\n═══ VARIABLES DE ENTORNO PARA .env / Railway ═══")
     print(f"""
-# Twilio
+# Twilio — credenciales
 TWILIO_ACCOUNT_SID={ACCOUNT_SID}
 TWILIO_API_KEY_SID={API_KEY_SID}
 TWILIO_API_KEY_SECRET={API_KEY_SECRET}
 TWILIO_WHATSAPP_NUMBER={WHATSAPP_FROM}
 MESSAGING_PROVIDER=twilio
 
-# Webhook URL (configúralo en Twilio Console):
+# Content SIDs de templates aprobados por WhatsApp
+# (pega estos valores en Railway una vez que los templates sean APPROVED)
+{sid_lines if sid_lines else "# (ningún template creado aún)"}
+
+# Webhook URL — configúralo en Twilio Console → Messaging → Senders → WhatsApp:
 # {RAILWAY_BASE_URL or '<TU_URL_RAILWAY>'}/api/v1/webhooks/twilio
 """)
 
@@ -330,7 +339,7 @@ MESSAGING_PROVIDER=twilio
 # ─── MAIN ────────────────────────────────────────────────────────────────
 
 def main():
-    print("🚀 RecordApp — Setup Twilio WhatsApp")
+    print("🚀 OlaApp — Setup Twilio WhatsApp")
     print("=" * 55)
 
     if not step1_verify_connection():
@@ -341,7 +350,7 @@ def main():
     content_sids = step3_create_content_templates()
     step4_configure_webhook()
     step5_send_test_message()
-    print_env_summary()
+    print_env_summary(content_sids)
 
     print("\n" + "=" * 55)
     print("✅ Setup completado. Revisa los mensajes arriba.")

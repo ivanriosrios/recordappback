@@ -27,10 +27,17 @@ class TwilioProvider(MessagingProvider):
         self.api_key_sid = settings.TWILIO_API_KEY_SID
         self.api_key_secret = settings.TWILIO_API_KEY_SECRET
         self.from_number = settings.TWILIO_WHATSAPP_NUMBER  # whatsapp:+1234567890
-        # Mapeo opcional de meta_template_name -> content_sid aprobado en Twilio Content API
+        # Mapeo meta_template_name -> content_sid aprobado en Twilio Content API
+        # Cuando un template tiene content_sid, se usa la Content API (funciona fuera de la
+        # ventana de 24h). Sin content_sid, el mensaje se envía como texto libre (solo dentro
+        # de la ventana de sesión activa de 24h).
         self.content_sids = {
-            "encuesta_servicio": settings.TWILIO_CONTENT_SID_ENCUESTA_SERVICIO,
-            "resumen_servicio": settings.TWILIO_CONTENT_SID_RESUMEN_SERVICIO,
+            "recordatorio_cita":    settings.TWILIO_CONTENT_SID_RECORDATORIO_CITA,
+            "feliz_cumpleanos":     settings.TWILIO_CONTENT_SID_FELIZ_CUMPLEANOS,
+            "encuesta_servicio":    settings.TWILIO_CONTENT_SID_ENCUESTA_SERVICIO,
+            "reactivacion_cliente": settings.TWILIO_CONTENT_SID_REACTIVACION_CLIENTE,
+            "confirmacion_optout":  settings.TWILIO_CONTENT_SID_CONFIRMACION_OPTOUT,
+            "resumen_servicio":     settings.TWILIO_CONTENT_SID_RESUMEN_SERVICIO,
         }
 
         # Filtrar vacíos para evitar usar strings en blanco
