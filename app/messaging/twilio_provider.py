@@ -30,6 +30,7 @@ class TwilioProvider(MessagingProvider):
         # Mapeo opcional de meta_template_name -> content_sid aprobado en Twilio Content API
         self.content_sids = {
             "encuesta_servicio": settings.TWILIO_CONTENT_SID_ENCUESTA_SERVICIO,
+            "resumen_servicio": settings.TWILIO_CONTENT_SID_RESUMEN_SERVICIO,
         }
 
         # Filtrar vacíos para evitar usar strings en blanco
