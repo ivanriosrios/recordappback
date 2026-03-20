@@ -16,8 +16,8 @@ class PlanType(str, enum.Enum):
 
 
 class WhatsAppStatus(str, enum.Enum):
-    NOT_CONFIGURED = "not_configured"  # Nunca configurado
-    SANDBOX = "sandbox"                # Usando sandbox de Twilio para pruebas
+    NOT_CONFIGURED = "not_configured"  # Recién registrado, OlaApp aún no ha configurado su número
+    PENDING = "pending"                # Número enviado a Meta, esperando aprobación (1-3 días)
     ACTIVE = "active"                  # WhatsApp Business API aprobado y activo
 
 

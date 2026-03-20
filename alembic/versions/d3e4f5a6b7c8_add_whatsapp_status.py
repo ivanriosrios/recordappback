@@ -15,14 +15,14 @@ depends_on = None
 
 def upgrade() -> None:
     # Crear el tipo enum en PostgreSQL
-    op.execute("CREATE TYPE whatsappstatus AS ENUM ('not_configured', 'sandbox', 'active')")
+    op.execute("CREATE TYPE whatsappstatus AS ENUM ('not_configured', 'pending', 'active')")
 
     # Agregar columna con default 'not_configured'
     op.add_column(
         "businesses",
         sa.Column(
             "whatsapp_status",
-            sa.Enum("not_configured", "sandbox", "active", name="whatsappstatus", create_type=False),
+            sa.Enum("not_configured", "pending", "active", name="whatsappstatus", create_type=False),
             nullable=False,
             server_default="not_configured",
         ),
