@@ -56,7 +56,7 @@ def _validate_twilio_signature(request: Request, body: bytes) -> bool:
 
         validator = RequestValidator(auth_token)
         signature = request.headers.get("X-Twilio-Signature", "")
-        url = str(request.url)
+        url = _get_twilio_signature_url(request)
 
         params: dict[str, str] = {}
         for key, values in parse_qs(body.decode("utf-8")).items():
@@ -66,6 +66,47 @@ def _validate_twilio_signature(request: Request, body: bytes) -> bool:
     except Exception as e:
         logger.error(f"[twilio-webhook] error validando firma: {e}")
         return False
+
+
+def _get_twilio_signature_url(request: Request) -> str:
+    """
+    Devuelve la URL exacta que Twilio usa para firmar el webhook.
+
+    Preferimos un override explícito porque los proxies suelen exponer a la app
+    una URL interna distinta de la pública que Twilio realmente firma.
+    """
+    public_url = settings.TWILIO_WEBHOOK_URL.strip()
+    if public_url:
+        return public_url
+
+    forwarded = request.headers.get("Forwarded", "")
+    forwarded_proto = ""
+    forwarded_host = ""
+
+    if forwarded:
+        first_entry = forwarded.split(",", 1)[0]
+        for part in first_entry.split(";"):
+            key, separator, value = part.strip().partition("=")
+            if not separator:
+                continue
+            normalized_key = key.lower()
+            normalized_value = value.strip().strip('"')
+            if normalized_key == "proto" and normalized_value:
+                forwarded_proto = normalized_value
+            elif normalized_key == "host" and normalized_value:
+                forwarded_host = normalized_value
+
+    if not forwarded_proto:
+        forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip()
+    if not forwarded_host:
+        forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
+
+    if forwarded_proto and forwarded_host:
+        query_string = request.url.query
+        query_suffix = f"?{query_string}" if query_string else ""
+        return f"{forwarded_proto}://{forwarded_host}{request.url.path}{query_suffix}"
+
+    return str(request.url)
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     TWILIO_API_KEY_SECRET: str = ""
     TWILIO_WHATSAPP_NUMBER: str = ""  # whatsapp:+573001234567
     TWILIO_WEBHOOK_AUTH_TOKEN: str = ""  # firma de webhooks
+    TWILIO_WEBHOOK_URL: str = ""  # URL pública exacta del webhook Twilio
     TWILIO_CONTENT_SID_RECORDATORIO_CITA: str = ""
     TWILIO_CONTENT_SID_FELIZ_CUMPLEANOS: str = ""
     TWILIO_CONTENT_SID_ENCUESTA_SERVICIO: str = ""
