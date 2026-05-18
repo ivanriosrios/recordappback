@@ -149,10 +149,12 @@ class ChatbotEngine:
         state.last_activity = datetime.utcnow()
         self.session.flush()
 
-    def _send(self, phone: str, text: str) -> None:
-        """Envía un mensaje al cliente."""
+    def _send(self, phone: str, text: str, business: Business | None = None) -> None:
+        """Envía un mensaje al cliente, prefijando con el negocio en shared mode."""
+        from app.services.messaging_format import prefix_business
+        body = prefix_business(business.name if business else None, text)
         try:
-            result = self.provider.send_text(to=phone, body=text)
+            result = self.provider.send_text(to=phone, body=body)
             if not result.success:
                 logger.error(f"[chatbot] Error enviando a {phone}: {result.error}")
         except Exception as e:
@@ -195,7 +197,7 @@ class ChatbotEngine:
                 self._start_booking(client, state, business)
             else:
                 # No es una keyword de agendamiento → mensaje genérico
-                self._send(client.phone, MSG.UNKNOWN_RESPONSE)
+                self._send(client.phone, MSG.UNKNOWN_RESPONSE, business=business)
             return
 
         # ── Cancelación en cualquier paso activo ─────────────────────────────
@@ -204,7 +206,7 @@ class ChatbotEngine:
         ):
             self._reset_state(state)
             self.session.commit()
-            self._send(client.phone, MSG.BOOKING_CANCELLED)
+            self._send(client.phone, MSG.BOOKING_CANCELLED, business=business)
             return
 
         # ── SELECTING_SERVICE ────────────────────────────────────────────────
@@ -213,7 +215,7 @@ class ChatbotEngine:
             error_msg = handle_selecting_service(text, state, services)
             if error_msg:
                 self.session.commit()
-                self._send(client.phone, error_msg)
+                self._send(client.phone, error_msg, business=business)
                 return
 
             # Servicio elegido → pedir fecha
@@ -223,13 +225,15 @@ class ChatbotEngine:
                 self.session.commit()
                 self._send(client.phone,
                     "Lo siento, el agendamiento no está disponible en este momento. "
-                    "Contáctanos directamente. 🙏")
+                    "Contáctanos directamente. 🙏",
+                    business=business)
                 return
 
             self.session.commit()
             service_name = state.context_data.get("service_name", "")
             self._send(client.phone,
-                build_date_selection_message(service_name, schedule))
+                build_date_selection_message(service_name, schedule),
+                business=business)
             return
 
         # ── SELECTING_DATE ───────────────────────────────────────────────────
@@ -238,13 +242,13 @@ class ChatbotEngine:
             if not schedule:
                 self._reset_state(state)
                 self.session.commit()
-                self._send(client.phone, "Agendamiento no disponible. Contáctanos. 🙏")
+                self._send(client.phone, "Agendamiento no disponible. Contáctanos. 🙏", business=business)
                 return
 
             error_msg, chosen_date = handle_selecting_date(text, state, schedule)
             if error_msg:
                 self.session.commit()
-                self._send(client.phone, error_msg)
+                self._send(client.phone, error_msg, business=business)
                 return
 
             # Guardar fecha y avanzar
@@ -256,7 +260,8 @@ class ChatbotEngine:
             state.last_activity = datetime.utcnow()
             self.session.commit()
             self._send(client.phone,
-                build_slot_selection_message(chosen_date, schedule))
+                build_slot_selection_message(chosen_date, schedule),
+                business=business)
             return
 
         # ── SELECTING_SLOT ───────────────────────────────────────────────────
@@ -266,11 +271,11 @@ class ChatbotEngine:
             error_msg = handle_selecting_slot(text, state, schedule, chosen_date)
             if error_msg:
                 self.session.commit()
-                self._send(client.phone, error_msg)
+                self._send(client.phone, error_msg, business=business)
                 return
 
             self.session.commit()
-            self._send(client.phone, build_confirmation_message(state))
+            self._send(client.phone, build_confirmation_message(state), business=business)
             return
 
         # ── CONFIRMING ───────────────────────────────────────────────────────
@@ -281,7 +286,7 @@ class ChatbotEngine:
             else:
                 self._reset_state(state)
                 self.session.commit()
-                self._send(client.phone, MSG.BOOKING_CANCELLED)
+                self._send(client.phone, MSG.BOOKING_CANCELLED, business=business)
             return
 
     def _start_booking(
@@ -295,14 +300,16 @@ class ChatbotEngine:
         if not schedule:
             self._send(client.phone,
                 "¡Hola! Por ahora el agendamiento no está disponible. "
-                "Contáctanos directamente para reservar tu cita. 🙏")
+                "Contáctanos directamente para reservar tu cita. 🙏",
+                business=business)
             return
 
         services = self._get_active_services(business.id)
         if not services:
             self._send(client.phone,
                 "¡Hola! En este momento no tenemos servicios disponibles para agendar. "
-                "Contáctanos para más información. 🙏")
+                "Contáctanos para más información. 🙏",
+                business=business)
             return
 
         state.step = ConversationStep.SELECTING_SERVICE
@@ -311,7 +318,8 @@ class ChatbotEngine:
         self.session.commit()
 
         self._send(client.phone,
-            build_service_selection_message(services))
+            build_service_selection_message(services),
+            business=business)
 
     def _create_appointment(
         self,
@@ -366,12 +374,16 @@ class ChatbotEngine:
         self.session.commit()
 
         # Confirmar al cliente
-        self._send(client.phone, MSG.BOOKING_CREATED.format(
-            business=business.name,
-            service=service_name,
-            date=date_str,
-            time=time_str,
-        ))
+        self._send(
+            client.phone,
+            MSG.BOOKING_CREATED.format(
+                business=business.name,
+                service=service_name,
+                date=date_str,
+                time=time_str,
+            ),
+            business=business,
+        )
 
         logger.info(
             f"[chatbot] Cita creada: client={client.id} "

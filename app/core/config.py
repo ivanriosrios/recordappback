@@ -55,6 +55,29 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     LLM_MODEL: str = "claude-haiku-4-5-20251001"
 
+    # ── SaaS billing ─────────────────────────────────────────────────
+    # Plan único MVP, en USD. Cambiar por business cuando se requiera.
+    SAAS_PRICE_USD: float = 12.0
+    SAAS_CURRENCY: str = "USD"
+    SAAS_TRIAL_DAYS: int = 14
+    SAAS_PLAN_NAME: str = "Pro"
+
+    # MercadoPago — usado para suscripción SaaS y anticipos del cliente final
+    MP_ACCESS_TOKEN: str = ""
+    MP_PUBLIC_KEY: str = ""
+    MP_WEBHOOK_SECRET: str = ""
+    MP_BASE_URL: str = "https://api.mercadopago.com"
+
+    # Modo WhatsApp compartido (MVP): un solo número Twilio para todos
+    # los negocios, con prefijo `*Negocio*` en cada mensaje saliente.
+    SHARED_WHATSAPP_MODE: bool = True
+
+    # Super-admins: CSV de emails con acceso al panel /admin.
+    SUPER_ADMIN_EMAILS: str = ""
+
+    # URL pública del frontend para redirects de MercadoPago.
+    APP_BASE_URL: str = "https://recordapp-production.up.railway.app"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @property
@@ -64,6 +87,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def super_admin_emails_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.SUPER_ADMIN_EMAILS.split(",") if e.strip()}
 
 
 @lru_cache

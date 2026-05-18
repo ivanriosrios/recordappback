@@ -23,6 +23,7 @@ class AppointmentStatus(str, enum.Enum):
     REJECTED   = "rejected"    # Negocio rechazó
     COMPLETED  = "completed"   # Servicio realizado
     CANCELLED  = "cancelled"   # Cancelado (por cliente o negocio)
+    NO_SHOW    = "no_show"     # Cliente no se presentó
 
 
 class AppointmentShift(str, enum.Enum):

@@ -10,6 +10,8 @@ from app.models.appointment import Appointment, AppointmentStatus, AppointmentSh
 from app.models.business_schedule import BusinessSchedule
 from app.models.conversation_state import ConversationState
 from app.models.processed_message import ProcessedMessage
+from app.models.subscription import Subscription, SubscriptionStatus, SaasPayment
+from app.models.client_payment import ClientPayment, ClientPaymentStatus
 
 __all__ = [
     "Business",
@@ -27,4 +29,9 @@ __all__ = [
     "BusinessSchedule",
     "ConversationState",
     "ProcessedMessage",
+    "Subscription",
+    "SubscriptionStatus",
+    "SaasPayment",
+    "ClientPayment",
+    "ClientPaymentStatus",
 ]

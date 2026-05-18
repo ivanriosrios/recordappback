@@ -4,9 +4,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.business import Business
+
+settings = get_settings()
 
 bearer_scheme = HTTPBearer()
 
@@ -40,5 +43,16 @@ def verify_business_access(business_id: UUID, current: Business = Depends(get_cu
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes acceso a este negocio",
+        )
+    return current
+
+
+def require_super_admin(current: Business = Depends(get_current_business)) -> Business:
+    """Solo los emails listados en SUPER_ADMIN_EMAILS pueden acceder."""
+    email = (current.email or "").lower().strip()
+    if not email or email not in settings.super_admin_emails_set:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso restringido a super-admin",
         )
     return current

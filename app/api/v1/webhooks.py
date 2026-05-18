@@ -145,6 +145,135 @@ async def receive_twilio_webhook(request: Request):
     return {"status": "ok"}
 
 
+# ──────────────────────────────────────────────────────────────────────
+# MercadoPago webhook (SaaS billing + client deposits)
+# ──────────────────────────────────────────────────────────────────────
+
+@router.post("/mercadopago")
+async def receive_mp_webhook(request: Request):
+    """
+    Recibe notificaciones de MercadoPago.
+
+    MP envía dos formatos:
+    - `topic=payment&id=NN` por query string (IPN legacy)
+    - JSON `{"type": "payment", "data": {"id": "..."}}` (webhooks)
+
+    En ambos casos hacemos un GET a `/v1/payments/{id}` para tener el
+    detalle completo y procesar.
+    """
+    try:
+        topic = request.query_params.get("topic") or request.query_params.get("type")
+        resource_id = request.query_params.get("id") or request.query_params.get("data.id")
+        if not resource_id:
+            body = {}
+            try:
+                body = await request.json()
+            except Exception:
+                pass
+            topic = topic or body.get("type") or body.get("topic")
+            data = body.get("data") or {}
+            resource_id = data.get("id") if isinstance(data, dict) else None
+
+        if not resource_id:
+            return {"status": "ignored"}
+
+        # Idempotency: marca el id como procesado
+        session = get_sync_session()
+        try:
+            sid = f"mp:{topic}:{resource_id}"
+            if already_processed(session, sid):
+                return {"status": "ok"}
+            if not mark_processed(session, sid, provider="mercadopago"):
+                return {"status": "ok"}
+
+            if topic in ("payment", "payments"):
+                _handle_mp_payment(session, str(resource_id))
+            elif topic in ("subscription_preapproval", "preapproval"):
+                _handle_mp_preapproval(session, str(resource_id))
+            else:
+                logger.info(f"[mp-webhook] topic={topic} resource={resource_id} ignorado")
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            logger.exception(f"[mp-webhook] error: {exc}")
+        finally:
+            session.close()
+    except Exception as exc:
+        logger.exception(f"[mp-webhook] error externo: {exc}")
+    return {"status": "ok"}
+
+
+def _handle_mp_payment(session, payment_id: str) -> None:
+    """Detalle de un payment de MP → SaaS o ClientPayment según referencia."""
+    from app.services.mercadopago import get_payment, MercadoPagoError
+    from app.services.subscription import apply_payment_sync
+    from app.models.client_payment import ClientPayment, ClientPaymentStatus
+
+    try:
+        data = get_payment(payment_id)
+    except MercadoPagoError as exc:
+        logger.warning(f"[mp-webhook] no se pudo leer payment {payment_id}: {exc}")
+        return
+
+    external_ref = (data.get("external_reference") or "").strip()
+    status_ = data.get("status", "")
+    amount = float(data.get("transaction_amount") or 0)
+    currency = data.get("currency_id") or "USD"
+
+    if external_ref.startswith("cp:"):
+        # Anticipo del cliente final
+        cp_id = external_ref[3:]
+        cp = session.get(ClientPayment, cp_id)
+        if not cp:
+            logger.warning(f"[mp-webhook] client payment {cp_id} no existe")
+            return
+        cp.mp_payment_id = payment_id
+        if status_ == "approved":
+            cp.status = ClientPaymentStatus.APPROVED
+            from datetime import datetime
+            cp.paid_at = datetime.utcnow()
+        elif status_ == "rejected":
+            cp.status = ClientPaymentStatus.REJECTED
+        elif status_ == "refunded":
+            cp.status = ClientPaymentStatus.REFUNDED
+        return
+
+    # Por defecto: pago de suscripción SaaS (external_reference = subscription_id)
+    apply_payment_sync(
+        session,
+        subscription_id=external_ref or None,
+        mp_payment_id=payment_id,
+        amount=amount,
+        currency=currency,
+        status=status_,
+    )
+
+
+def _handle_mp_preapproval(session, preapproval_id: str) -> None:
+    """Eventos de preapproval (status cambia: authorized, cancelled, paused)."""
+    from app.models.subscription import Subscription, SubscriptionStatus
+    from app.services.mercadopago import get_preapproval, MercadoPagoError
+
+    try:
+        data = get_preapproval(preapproval_id)
+    except MercadoPagoError as exc:
+        logger.warning(f"[mp-webhook] no se pudo leer preapproval {preapproval_id}: {exc}")
+        return
+
+    sub = (
+        session.query(Subscription)
+        .filter(Subscription.mp_preapproval_id == preapproval_id)
+        .first()
+    )
+    if not sub:
+        return
+    mp_status = data.get("status", "")
+    if mp_status == "cancelled":
+        from datetime import datetime
+        sub.status = SubscriptionStatus.CANCELED
+        sub.canceled_at = datetime.utcnow()
+
+
 def _dispatch(from_number: str, to_number: str, body: str, sid: str) -> None:
     """
     Toda la lógica vive en una sola sesión SQLAlchemy. Si algo falla,
@@ -157,7 +286,7 @@ def _dispatch(from_number: str, to_number: str, body: str, sid: str) -> None:
             logger.info(f"[twilio-webhook] sid={sid} ya procesado — skip")
             return
 
-        business = resolve_business(session, to_number)
+        business = resolve_business(session, to_number, from_number=from_number)
         if not business:
             logger.warning(f"[twilio-webhook] To desconocido: {to_number}")
             if sid:

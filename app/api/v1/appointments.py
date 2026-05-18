@@ -337,6 +337,84 @@ async def cancel_appointment(
     return appt
 
 
+@router.post("/{appointment_id}/mark-no-show", response_model=AppointmentResponse)
+async def mark_no_show(
+    business_id: UUID,
+    appointment_id: UUID,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Marca una cita como no-show. Alimenta el dashboard de Valor."""
+    appt = await _get_appointment_or_404(db, business_id, appointment_id)
+    if appt.status not in (AppointmentStatus.CONFIRMED, AppointmentStatus.REQUESTED):
+        raise HTTPException(
+            status_code=400, detail=f"Solo citas confirmadas/solicitadas pueden marcarse no-show"
+        )
+    appt.status = AppointmentStatus.NO_SHOW
+    await db.flush()
+    await db.refresh(appt)
+    return appt
+
+
+class CreateDepositRequest(BaseModel):
+    amount: float
+    currency: str = "USD"
+
+
+@router.post("/{appointment_id}/create-deposit")
+async def create_deposit(
+    business_id: UUID,
+    appointment_id: UUID,
+    payload: CreateDepositRequest,
+    _biz: Business = Depends(verify_business_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Crea una preference de MercadoPago para que el cliente pague un anticipo
+    (seña). Devuelve `init_point` con el link de pago.
+    """
+    from app.core.config import get_settings
+    from app.models.client_payment import ClientPayment, ClientPaymentStatus
+    from app.services.mercadopago import create_deposit_preference, MercadoPagoError
+
+    settings = get_settings()
+    appt = await _get_appointment_or_404(db, business_id, appointment_id)
+
+    cp = ClientPayment(
+        business_id=business_id,
+        client_id=appt.client_id,
+        appointment_id=appt.id,
+        amount=payload.amount,
+        currency=payload.currency,
+        status=ClientPaymentStatus.PENDING,
+    )
+    db.add(cp)
+    await db.flush()
+
+    try:
+        pref = create_deposit_preference(
+            title=f"Anticipo cita {appt.appointment_date}",
+            amount=payload.amount,
+            currency=payload.currency,
+            external_reference=f"cp:{cp.id}",
+            notification_url=f"{settings.APP_BASE_URL.rstrip('/')}/api/v1/webhooks/mercadopago",
+            success_url=f"{settings.APP_BASE_URL.rstrip('/')}/billing/deposit-return",
+        )
+    except MercadoPagoError as exc:
+        raise HTTPException(status_code=502, detail=f"MercadoPago error: {exc}")
+
+    cp.mp_preference_id = pref.get("id")
+    cp.init_point = pref.get("init_point") or pref.get("sandbox_init_point")
+    await db.flush()
+    await db.refresh(cp)
+    return {
+        "id": str(cp.id),
+        "init_point": cp.init_point,
+        "amount": float(cp.amount),
+        "currency": cp.currency,
+    }
+
+
 async def _notify_client_appointment(
     db: AsyncSession,
     appt: Appointment,

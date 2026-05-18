@@ -20,6 +20,7 @@ import logging
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.text import strip_whatsapp_prefix, phone_suffix
 from app.models.business import Business
 from app.models.client import Client, ClientStatus
@@ -30,23 +31,79 @@ from app.models.service_log import ServiceLog
 from app.services.intent_classifier import classify
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
-def resolve_business(session: Session, to_number: str) -> Business | None:
+def resolve_business(session: Session, to_number: str, *, from_number: str | None = None) -> Business | None:
     """
     Encuentra el Business al que pertenece el número Twilio destino.
-    Hace match por sufijo de 10 dígitos (tolerante a formato `whatsapp:+`).
+
+    - Modo dedicado (SHARED_WHATSAPP_MODE=False): match exacto por
+      sufijo de 10 dígitos de `whatsapp_phone`.
+    - Modo compartido (SHARED_WHATSAPP_MODE=True): todos los negocios
+      reciben en el mismo número Twilio. Se resuelve el business por
+      la conversación más reciente del cliente (último ConversationState,
+      último ReminderLog o el negocio del único Client que matchea).
     """
-    cleaned = strip_whatsapp_prefix(to_number)
-    suffix = phone_suffix(cleaned, 10)
-    if not suffix:
+    if not settings.SHARED_WHATSAPP_MODE:
+        cleaned = strip_whatsapp_prefix(to_number)
+        suffix = phone_suffix(cleaned, 10)
+        if not suffix:
+            return None
+        return (
+            session.query(Business)
+            .filter(Business.whatsapp_phone.contains(suffix))
+            .filter(Business.deleted_at.is_(None))
+            .first()
+        )
+
+    if not from_number:
         return None
-    return (
-        session.query(Business)
-        .filter(Business.whatsapp_phone.contains(suffix))
-        .filter(Business.deleted_at.is_(None))
+
+    cleaned_from = strip_whatsapp_prefix(from_number)
+    sfx = phone_suffix(cleaned_from, 10)
+    if not sfx:
+        return None
+
+    matching_clients = (
+        session.query(Client)
+        .filter(Client.phone.contains(sfx))
+        .filter(Client.deleted_at.is_(None))
+        .all()
+    )
+    if not matching_clients:
+        return None
+    if len(matching_clients) == 1:
+        return session.get(Business, matching_clients[0].business_id)
+
+    # Más de un cliente con ese número (mismo número en varios negocios).
+    # Prioridad: conversación activa más reciente.
+    client_ids = [c.id for c in matching_clients]
+    recent_state = (
+        session.query(ConversationState)
+        .filter(ConversationState.client_id.in_(client_ids))
+        .order_by(desc(ConversationState.last_activity))
         .first()
     )
+    if recent_state:
+        return session.get(Business, recent_state.business_id)
+
+    # Fallback: ReminderLog más reciente que apunta a uno de estos clientes.
+    recent_log = (
+        session.query(ReminderLog, Reminder.client_id)
+        .join(Reminder, ReminderLog.reminder_id == Reminder.id)
+        .filter(Reminder.client_id.in_(client_ids))
+        .order_by(desc(ReminderLog.sent_at))
+        .first()
+    )
+    if recent_log:
+        log, client_id = recent_log
+        match = next((c for c in matching_clients if c.id == client_id), None)
+        if match:
+            return session.get(Business, match.business_id)
+
+    # Último recurso: el primero por orden de creación.
+    return session.get(Business, matching_clients[0].business_id)
 
 
 def find_client(session: Session, business_id, from_number: str) -> Client | None:
