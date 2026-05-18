@@ -10,11 +10,11 @@ Recibe un teléfono + texto y decide qué hacer:
 Este módulo NO importa de api/ ni de tasks/. Es puro dominio.
 """
 import logging
-import unicodedata
 from datetime import datetime, date
 
 from sqlalchemy.orm import Session
 
+from app.core.text import normalize as _normalize, phone_suffix
 from app.models.client import Client, ClientStatus
 from app.models.business import Business
 from app.models.service import Service
@@ -37,10 +37,12 @@ from app.messaging import get_messaging_provider
 
 logger = logging.getLogger(__name__)
 
-# Keywords que activan el flujo de agendamiento
+# Keywords que activan el flujo de agendamiento.
+# NOTA: "si"/"sí"/"yes" se sacaron a propósito — eran fuente de bugs
+# (confirmaciones genéricas caían accidentalmente en booking flow).
 BOOKING_KEYWORDS = {
     "cita", "agendar", "reservar", "turno", "quiero cita",
-    "necesito cita", "appointment", "quiero agendar", "si", "sí", "yes",
+    "necesito cita", "appointment", "quiero agendar",
 }
 
 # Keywords de cancelación durante un flujo activo
@@ -48,12 +50,6 @@ CANCEL_KEYWORDS = {"no", "cancelar", "cancel", "salir", "exit"}
 
 # Tiempo de expiración de conversación sin actividad (horas)
 CONVERSATION_TIMEOUT_HOURS = 2
-
-
-def _normalize(text: str) -> str:
-    text = text.lower().strip()
-    text = unicodedata.normalize("NFD", text)
-    return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
 
 class ChatbotEngine:
@@ -103,14 +99,23 @@ class ChatbotEngine:
             self.session.rollback()
 
     def _find_client(self, phone: str) -> Client | None:
-        """Busca cliente por sufijo de teléfono (últimos 10 dígitos)."""
-        suffix = phone.replace("+", "").replace(" ", "")[-10:]
-        clients = (
+        """
+        Busca cliente por sufijo de teléfono (últimos 10 dígitos).
+
+        Cuando el orquestador resolvió previamente el Business y nos pasa
+        un cliente concreto, el ChatbotEngine NO debería volver a buscar
+        globalmente. Esta función queda como fallback para invocaciones
+        directas (tests, scripts) y filtra explícitamente soft-deleted.
+        """
+        suffix = phone_suffix(phone, 10)
+        if not suffix:
+            return None
+        return (
             self.session.query(Client)
             .filter(Client.phone.contains(suffix))
-            .all()
+            .filter(Client.deleted_at.is_(None))
+            .first()
         )
-        return clients[0] if clients else None
 
     def _get_or_create_state(self, client: Client) -> ConversationState:
         """Retorna el estado de conversación del cliente, o crea uno nuevo."""

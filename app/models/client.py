@@ -55,6 +55,8 @@ class Client(Base):
     extra_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    # Soft-delete: si está seteado, el cliente se considera eliminado pero los datos persisten.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     business: Mapped["Business"] = relationship("Business", back_populates="clients")

@@ -28,3 +28,10 @@ requests==2.32.3
 
 # Twilio (WhatsApp messaging provider)
 twilio==9.4.0
+
+# Observability (opcional — solo si SENTRY_DSN está seteado)
+sentry-sdk[fastapi,celery,sqlalchemy]==2.18.0
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.2

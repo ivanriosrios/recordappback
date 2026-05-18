@@ -1,11 +1,33 @@
 """
 Configuración de Celery con Redis como broker y backend.
 """
+import logging
+
 from celery import Celery
 from celery.schedules import crontab
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+# Sentry para los workers (opcional)
+if settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.ENV,
+            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+            integrations=[CeleryIntegration(), SqlalchemyIntegration()],
+            send_default_pii=False,
+        )
+        logger.info("[sentry] inicializado en worker Celery")
+    except Exception as exc:
+        logger.warning(f"[sentry] no se pudo inicializar en Celery: {exc}")
 
 celery_app = Celery(
     "recordapp",

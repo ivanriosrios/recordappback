@@ -10,9 +10,12 @@ import enum
 
 
 class PlanType(str, enum.Enum):
+    # Alineado con README/precios: Starter ($0) — Pro ($25) — Business ($45).
+    # `basic` se conserva como alias histórico hacia `pro` en serializadores.
     FREE = "free"
-    BASIC = "basic"
+    BASIC = "basic"  # legacy — equivalente a PRO
     PRO = "pro"
+    BUSINESS = "business"
 
 
 class WhatsAppStatus(str, enum.Enum):
@@ -44,6 +47,8 @@ class Business(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    # Soft-delete: si está seteado, el negocio se considera eliminado pero los datos persisten.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Estado de configuración de WhatsApp Business
     whatsapp_status: Mapped[WhatsAppStatus] = mapped_column(
