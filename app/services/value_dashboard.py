@@ -44,6 +44,7 @@ class ValueDashboard:
     reactivated_clients: int
     attributed_revenue: float
     total_revenue: float
+    rescued_slots: int = 0        # citas creadas desde waitlist
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -108,6 +109,16 @@ async def compute(
                 attributed_revenue += float(r.price_charged or 0)
                 reactivated_clients.add(r.client_id)
 
+    # ── Cupos rescatados (waitlist) ───────────────────────────────────
+    rescued_q = (
+        select(func.count())
+        .select_from(Appointment)
+        .where(Appointment.business_id == business_id)
+        .where(Appointment.rescued_from_waitlist.is_(True))
+        .where(Appointment.created_at >= since)
+    )
+    rescued_slots = int((await db.execute(rescued_q)).scalar() or 0)
+
     return ValueDashboard(
         period=period,
         days=days,
@@ -117,4 +128,5 @@ async def compute(
         reactivated_clients=len(reactivated_clients),
         attributed_revenue=round(attributed_revenue, 2),
         total_revenue=round(total_revenue, 2),
+        rescued_slots=rescued_slots,
     )

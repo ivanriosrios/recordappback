@@ -12,6 +12,7 @@ from app.models.conversation_state import ConversationState
 from app.models.processed_message import ProcessedMessage
 from app.models.subscription import Subscription, SubscriptionStatus, SaasPayment
 from app.models.client_payment import ClientPayment, ClientPaymentStatus
+from app.models.waitlist import WaitlistEntry, WaitlistStatus
 
 __all__ = [
     "Business",
@@ -34,4 +35,6 @@ __all__ = [
     "SaasPayment",
     "ClientPayment",
     "ClientPaymentStatus",
+    "WaitlistEntry",
+    "WaitlistStatus",
 ]

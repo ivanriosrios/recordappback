@@ -63,6 +63,18 @@ class Business(Base):
     reactivation_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
     birthday_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
     follow_up_auto_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    # Anti no-show: pedir confirmación al cliente 2h antes de la cita.
+    require_confirmation: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+    # Minutos antes de la cita para pedir confirmación.
+    confirmation_lead_minutes: Mapped[int] = mapped_column(
+        default=120, nullable=False, server_default="120"
+    )
+    # Minutos para que el cliente responda antes de auto-cancelar.
+    confirmation_window_minutes: Mapped[int] = mapped_column(
+        default=30, nullable=False, server_default="30"
+    )
 
     # Relationships
     clients: Mapped[list["Client"]] = relationship("Client", back_populates="business", cascade="all, delete-orphan")

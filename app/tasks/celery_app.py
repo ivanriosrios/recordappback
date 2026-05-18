@@ -42,6 +42,8 @@ celery_app = Celery(
         "app.tasks.send_service_summary",
         "app.tasks.notify_pending_appointments",
         "app.tasks.scheduler",
+        "app.tasks.appointment_confirmations",
+        "app.tasks.waitlist_matching",
     ],
 )
 
@@ -99,6 +101,21 @@ celery_app.conf.update(
         "check-pending-appointments": {
             "task": "app.tasks.notify_pending_appointments.notify_pending_appointments_task",
             "schedule": crontab(minute=0, hour="*/2"),
+        },
+        # Anti no-show: pedir confirmación al cliente ~2h antes de la cita
+        "request-appointment-confirmations": {
+            "task": "app.tasks.appointment_confirmations.request_confirmations",
+            "schedule": crontab(minute="*/15"),
+        },
+        # Anti no-show: expirar citas sin confirmar y disparar waitlist
+        "expire-unconfirmed-appointments": {
+            "task": "app.tasks.appointment_confirmations.expire_unconfirmed",
+            "schedule": crontab(minute="*/5"),
+        },
+        # Waitlist: expirar ofertas no respondidas y pasar al siguiente
+        "expire-waitlist-offers": {
+            "task": "app.tasks.waitlist_matching.expire_offers_task",
+            "schedule": crontab(minute="*/10"),
         },
     },
 

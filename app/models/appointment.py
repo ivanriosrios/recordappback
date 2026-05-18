@@ -18,12 +18,13 @@ from app.core.database import Base
 
 
 class AppointmentStatus(str, enum.Enum):
-    REQUESTED  = "requested"   # Cliente solicitó via chatbot, esperando confirmación
-    CONFIRMED  = "confirmed"   # Negocio confirmó
-    REJECTED   = "rejected"    # Negocio rechazó
-    COMPLETED  = "completed"   # Servicio realizado
-    CANCELLED  = "cancelled"   # Cancelado (por cliente o negocio)
-    NO_SHOW    = "no_show"     # Cliente no se presentó
+    REQUESTED             = "requested"              # Cliente solicitó via chatbot, esperando confirmación
+    CONFIRMED             = "confirmed"              # Negocio confirmó
+    AWAITING_CONFIRMATION = "awaiting_confirmation"  # 2h antes: bot pidió confirmación al cliente
+    REJECTED              = "rejected"               # Negocio rechazó
+    COMPLETED             = "completed"              # Servicio realizado
+    CANCELLED             = "cancelled"              # Cancelado (por cliente o negocio)
+    NO_SHOW               = "no_show"                # Cliente no se presentó
 
 
 class AppointmentShift(str, enum.Enum):
@@ -76,6 +77,12 @@ class Appointment(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reminder_sent: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    # Anti no-show: confirmación obligatoria 2h antes
+    confirmation_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    confirmed_by_client_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Si la cita es resultado de una sustitución por waitlist, marca el origen.
+    rescued_from_waitlist: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

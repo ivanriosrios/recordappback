@@ -334,7 +334,17 @@ async def cancel_appointment(
     await db.refresh(appt)
 
     await _notify_client_appointment(db, appt, action="cancelled")
+    _enqueue_waitlist_match(appt.id)
     return appt
+
+
+def _enqueue_waitlist_match(appointment_id) -> None:
+    """Dispara matcher de waitlist (silencia errores — best-effort)."""
+    try:
+        from app.tasks.waitlist_matching import process_waitlist_for_appointment_task
+        process_waitlist_for_appointment_task.delay(str(appointment_id))
+    except Exception:
+        pass
 
 
 @router.post("/{appointment_id}/mark-no-show", response_model=AppointmentResponse)
@@ -344,15 +354,20 @@ async def mark_no_show(
     _biz: Business = Depends(verify_business_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """Marca una cita como no-show. Alimenta el dashboard de Valor."""
+    """Marca una cita como no-show. Alimenta el dashboard de Valor y waitlist."""
     appt = await _get_appointment_or_404(db, business_id, appointment_id)
-    if appt.status not in (AppointmentStatus.CONFIRMED, AppointmentStatus.REQUESTED):
+    if appt.status not in (
+        AppointmentStatus.CONFIRMED,
+        AppointmentStatus.REQUESTED,
+        AppointmentStatus.AWAITING_CONFIRMATION,
+    ):
         raise HTTPException(
-            status_code=400, detail=f"Solo citas confirmadas/solicitadas pueden marcarse no-show"
+            status_code=400, detail=f"No se puede marcar no-show desde '{appt.status}'"
         )
     appt.status = AppointmentStatus.NO_SHOW
     await db.flush()
     await db.refresh(appt)
+    _enqueue_waitlist_match(appt.id)
     return appt
 
 

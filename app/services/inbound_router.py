@@ -17,17 +17,20 @@ Pipeline:
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.text import strip_whatsapp_prefix, phone_suffix
+from app.core.text import normalize, strip_whatsapp_prefix, phone_suffix
+from app.models.appointment import Appointment, AppointmentStatus
 from app.models.business import Business
 from app.models.client import Client, ClientStatus
 from app.models.conversation_state import ConversationState, ConversationStep
 from app.models.reminder import Reminder
 from app.models.reminder_log import ReminderLog, LogStatus
 from app.models.service_log import ServiceLog
+from app.models.waitlist import WaitlistEntry, WaitlistStatus
 from app.services.intent_classifier import classify
 
 logger = logging.getLogger(__name__)
@@ -133,9 +136,25 @@ def route_inbound(
     """
     Decide cómo procesar el mensaje. La sesión queda viva en el caller
     (que la commit-eará o cerrará).
+
+    Prioridad:
+      0a. Cita AWAITING_CONFIRMATION → SI confirma, NO cancela + reprograma
+      0b. Oferta de waitlist OFFERED → SI acepta, NO rechaza
+      1. Flujo de chatbot activo → ChatbotEngine
+      2. ReminderLog SENT reciente → handler legacy
+      3. Encuesta pendiente + rated_* → guarda rating
+      4. booking_intent / optout / sin contexto → ChatbotEngine
     """
     if client.status == ClientStatus.OPTOUT:
         logger.info(f"[inbound] cliente {client.id} en opt-out, ignorando")
+        return
+
+    # 0a. Cita esperando confirmación del cliente
+    if _handle_awaiting_confirmation(session, business, client, message_text):
+        return
+
+    # 0b. Oferta de waitlist activa
+    if _handle_waitlist_offer(session, business, client, message_text):
         return
 
     # 1. ¿Flujo de chatbot activo?
@@ -280,6 +299,188 @@ def _save_followup_rating(
         f"Servicio{service_name} — respondió '{message_text}' a la encuesta post-servicio.",
     )
     logger.info(f"[inbound] ServiceLog {log.id} rating → {log.rating}")
+
+
+_YES = {"si", "sí", "yes", "ok", "claro", "dale", "listo", "confirmo", "1"}
+_NO = {"no", "nop", "cancelar", "cancel", "2"}
+
+
+def _tokens(text: str) -> set[str]:
+    """Tokeniza ignorando puntuación común."""
+    t = normalize(text)
+    for ch in ",.;:!?\"'()":
+        t = t.replace(ch, " ")
+    return {tok for tok in t.split() if tok}
+
+
+def _is_yes(text: str) -> bool:
+    return bool(_tokens(text) & _YES)
+
+
+def _is_no(text: str) -> bool:
+    return bool(_tokens(text) & _NO)
+
+
+def _handle_awaiting_confirmation(
+    session: Session, business: Business, client: Client, message_text: str
+) -> bool:
+    """
+    Si el cliente tiene una cita AWAITING_CONFIRMATION, interpreta la
+    respuesta SI/NO. Devuelve True si manejó el mensaje.
+    """
+    from app.services.messaging_format import prefix_business
+    from app.messaging import get_messaging_provider
+
+    appt = (
+        session.query(Appointment)
+        .filter(
+            Appointment.client_id == client.id,
+            Appointment.status == AppointmentStatus.AWAITING_CONFIRMATION,
+        )
+        .order_by(desc(Appointment.confirmation_requested_at))
+        .first()
+    )
+    if not appt:
+        return False
+
+    provider = get_messaging_provider()
+    now = datetime.utcnow()
+
+    if _is_yes(message_text):
+        appt.status = AppointmentStatus.CONFIRMED
+        appt.confirmed_by_client_at = now
+        session.flush()
+        body = prefix_business(
+            business.name,
+            f"¡Perfecto, {client.display_name}! Te esperamos. 🙌",
+        )
+        provider.send_text(to=client.phone, body=body)
+        logger.info(f"[confirm] appt={appt.id} confirmado por cliente")
+        return True
+
+    if _is_no(message_text):
+        appt.status = AppointmentStatus.CANCELLED
+        session.flush()
+        body = prefix_business(
+            business.name,
+            (
+                f"Entendido {client.display_name}, liberamos tu cupo. "
+                f"Si quieres reprogramar, responde *AGENDAR* y te ofrecemos otros horarios."
+            ),
+        )
+        provider.send_text(to=client.phone, body=body)
+        # Encolar el matcher de waitlist para que ofrezca el slot
+        try:
+            from app.tasks.waitlist_matching import process_waitlist_for_appointment_task
+            process_waitlist_for_appointment_task.delay(str(appt.id))
+        except Exception as exc:
+            logger.warning(f"[confirm] no se pudo encolar waitlist: {exc}")
+        logger.info(f"[confirm] appt={appt.id} cancelado por cliente, disparado waitlist")
+        return True
+
+    # Mensaje ambiguo en estado AWAITING_CONFIRMATION → reenviar instrucción
+    body = prefix_business(
+        business.name,
+        "No te entendí. ¿Confirmas tu cita? Responde *SI* o *NO*.",
+    )
+    provider.send_text(to=client.phone, body=body)
+    return True
+
+
+def _handle_waitlist_offer(
+    session: Session, business: Business, client: Client, message_text: str
+) -> bool:
+    """
+    Si el cliente tiene una oferta de waitlist OFFERED activa, interpreta
+    SI/NO. Devuelve True si manejó el mensaje.
+    """
+    from app.services.messaging_format import prefix_business
+    from app.messaging import get_messaging_provider
+
+    entry = (
+        session.query(WaitlistEntry)
+        .filter(
+            WaitlistEntry.client_id == client.id,
+            WaitlistEntry.status == WaitlistStatus.OFFERED,
+        )
+        .order_by(desc(WaitlistEntry.offered_at))
+        .first()
+    )
+    if not entry:
+        return False
+
+    # Expirada — la trataremos como decline + continuar matcher
+    if entry.expires_at and entry.expires_at < datetime.utcnow():
+        entry.status = WaitlistStatus.EXPIRED
+        session.flush()
+        return False
+
+    provider = get_messaging_provider()
+
+    if _is_yes(message_text) and entry.offered_appointment_id:
+        # Cliente acepta: clonar el appt cancelado/liberado a nombre del cliente nuevo
+        src = session.get(Appointment, entry.offered_appointment_id)
+        if not src:
+            entry.status = WaitlistStatus.EXPIRED
+            session.flush()
+            return True
+        new_appt = Appointment(
+            business_id=src.business_id,
+            client_id=client.id,
+            service_id=src.service_id,
+            status=AppointmentStatus.CONFIRMED,
+            appointment_date=src.appointment_date,
+            appointment_time=src.appointment_time,
+            shift=src.shift,
+            rescued_from_waitlist=True,
+            confirmed_by_client_at=datetime.utcnow(),
+        )
+        session.add(new_appt)
+        entry.status = WaitlistStatus.ACCEPTED
+        session.flush()
+
+        body = prefix_business(
+            business.name,
+            (
+                f"¡Listo {client.display_name}! Confirmada tu cita el "
+                f"*{src.appointment_date}*. Te esperamos. 🙌"
+            ),
+        )
+        provider.send_text(to=client.phone, body=body)
+        # Notificar al negocio
+        try:
+            from app.services.notifications import create_notification_sync
+            from app.models.notification import NotificationType
+            create_notification_sync(
+                session,
+                business.id,
+                NotificationType.APPOINTMENT_REQUESTED,
+                f"♻️ Cupo rescatado: {client.display_name}",
+                f"Se llenó un hueco con un cliente de la lista de espera.",
+            )
+        except Exception as exc:
+            logger.warning(f"[waitlist] notif: {exc}")
+        logger.info(f"[waitlist] entry={entry.id} aceptada → appt={new_appt.id}")
+        return True
+
+    if _is_no(message_text):
+        entry.status = WaitlistStatus.DECLINED
+        session.flush()
+        body = prefix_business(
+            business.name,
+            "Entendido. Te avisamos cuando se libere otro cupo. 🙏",
+        )
+        provider.send_text(to=client.phone, body=body)
+        # Continuar matcher con el siguiente
+        try:
+            from app.tasks.waitlist_matching import process_waitlist_for_appointment_task
+            if entry.offered_appointment_id:
+                process_waitlist_for_appointment_task.delay(str(entry.offered_appointment_id))
+        except Exception as exc:
+            logger.warning(f"[waitlist] no se pudo re-encolar: {exc}")
+        return True
+
+    return False
 
 
 def _handle_optout(session: Session, business: Business, client: Client) -> None:
