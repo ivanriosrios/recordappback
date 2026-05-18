@@ -1,6 +1,6 @@
 # RecordApp Backend
 
-API REST para el sistema de recordatorios inteligentes por WhatsApp.
+API REST para el sistema de recordatorios inteligentes por WhatsApp
 
 ## Stack
 
