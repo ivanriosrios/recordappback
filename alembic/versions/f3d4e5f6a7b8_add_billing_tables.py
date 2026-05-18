@@ -1,16 +1,17 @@
-"""Add subscriptions, saas_payments and client_payments (idempotente)
+"""Add subscriptions, saas_payments and client_payments (idempotente, SQL crudo)
 
 Revision ID: f3d4e5f6a7b8
 Revises: f2c3d4e5f6a7
 Create Date: 2026-05-18
 
-Esta migración fue rehecha como idempotente: chequea pg_type /
-information_schema antes de cada CREATE para que un deploy parcial
-previo (que dejó enums o tablas colgadas) no la haga fallar.
+Usa SQL crudo para CREATE TABLE para evitar el event hook
+`_on_table_create` de SQLAlchemy, que en 2.0 intenta crear ENUMs
+nativos de PostgreSQL incluso cuando `create_type=False` está seteado
+en la columna. Ese hook causaba DuplicateObject en redeploys donde el
+ENUM ya existía de un intento previo.
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from app.core.migration_helpers import has_enum, has_table, has_index
 
@@ -18,10 +19,6 @@ revision = "f3d4e5f6a7b8"
 down_revision = "f2c3d4e5f6a7"
 branch_labels = None
 depends_on = None
-
-
-SUB_STATUS = ("trialing", "active", "past_due", "canceled", "free")
-CP_STATUS = ("pending", "approved", "rejected", "refunded", "cancelled")
 
 
 def upgrade() -> None:
@@ -39,72 +36,78 @@ def upgrade() -> None:
         ))
 
     if not has_table(conn, "subscriptions"):
-        op.create_table(
-            "subscriptions",
-            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("business_id", postgresql.UUID(as_uuid=True),
-                      sa.ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("status",
-                      sa.Enum(*SUB_STATUS, name="subscriptionstatus", create_type=False),
-                      nullable=False, server_default="trialing"),
-            sa.Column("plan_name", sa.String(length=50), nullable=False, server_default="Pro"),
-            sa.Column("price_usd", sa.Numeric(10, 2), nullable=False, server_default="12.0"),
-            sa.Column("currency", sa.String(length=3), nullable=False, server_default="USD"),
-            sa.Column("trial_ends_at", sa.DateTime(), nullable=True),
-            sa.Column("current_period_end", sa.DateTime(), nullable=True),
-            sa.Column("canceled_at", sa.DateTime(), nullable=True),
-            sa.Column("granted_free_months", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("mp_preapproval_id", sa.String(length=64), nullable=True),
-            sa.Column("mp_payer_email", sa.String(length=150), nullable=True),
-            sa.Column("mp_init_point", sa.String(length=500), nullable=True),
-            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        )
+        op.execute(sa.text("""
+            CREATE TABLE subscriptions (
+                id UUID PRIMARY KEY,
+                business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+                status subscriptionstatus NOT NULL DEFAULT 'trialing',
+                plan_name VARCHAR(50) NOT NULL DEFAULT 'Pro',
+                price_usd NUMERIC(10, 2) NOT NULL DEFAULT 12.0,
+                currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                trial_ends_at TIMESTAMP,
+                current_period_end TIMESTAMP,
+                canceled_at TIMESTAMP,
+                granted_free_months INTEGER NOT NULL DEFAULT 0,
+                mp_preapproval_id VARCHAR(64),
+                mp_payer_email VARCHAR(150),
+                mp_init_point VARCHAR(500),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
     if not has_index(conn, "uq_subscriptions_business"):
-        op.create_index("uq_subscriptions_business", "subscriptions", ["business_id"], unique=True)
+        op.execute(sa.text(
+            "CREATE UNIQUE INDEX uq_subscriptions_business "
+            "ON subscriptions (business_id)"
+        ))
 
     if not has_table(conn, "saas_payments"):
-        op.create_table(
-            "saas_payments",
-            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("subscription_id", postgresql.UUID(as_uuid=True),
-                      sa.ForeignKey("subscriptions.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("mp_payment_id", sa.String(length=64), nullable=True),
-            sa.Column("amount", sa.Numeric(10, 2), nullable=False),
-            sa.Column("currency", sa.String(length=3), nullable=False, server_default="USD"),
-            sa.Column("status", sa.String(length=32), nullable=False),
-            sa.Column("paid_at", sa.DateTime(), nullable=True),
-            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        )
+        op.execute(sa.text("""
+            CREATE TABLE saas_payments (
+                id UUID PRIMARY KEY,
+                subscription_id UUID NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+                mp_payment_id VARCHAR(64),
+                amount NUMERIC(10, 2) NOT NULL,
+                currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                status VARCHAR(32) NOT NULL,
+                paid_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
     if not has_index(conn, "ix_saas_payments_subscription"):
-        op.create_index("ix_saas_payments_subscription", "saas_payments", ["subscription_id"])
+        op.execute(sa.text(
+            "CREATE INDEX ix_saas_payments_subscription "
+            "ON saas_payments (subscription_id)"
+        ))
 
     if not has_table(conn, "client_payments"):
-        op.create_table(
-            "client_payments",
-            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("business_id", postgresql.UUID(as_uuid=True),
-                      sa.ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("client_id", postgresql.UUID(as_uuid=True),
-                      sa.ForeignKey("clients.id", ondelete="SET NULL"), nullable=True),
-            sa.Column("appointment_id", postgresql.UUID(as_uuid=True),
-                      sa.ForeignKey("appointments.id", ondelete="SET NULL"), nullable=True),
-            sa.Column("amount", sa.Numeric(10, 2), nullable=False),
-            sa.Column("currency", sa.String(length=3), nullable=False, server_default="USD"),
-            sa.Column("status",
-                      sa.Enum(*CP_STATUS, name="clientpaymentstatus", create_type=False),
-                      nullable=False, server_default="pending"),
-            sa.Column("mp_preference_id", sa.String(length=64), nullable=True),
-            sa.Column("mp_payment_id", sa.String(length=64), nullable=True),
-            sa.Column("init_point", sa.String(length=500), nullable=True),
-            sa.Column("paid_at", sa.DateTime(), nullable=True),
-            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        )
+        op.execute(sa.text("""
+            CREATE TABLE client_payments (
+                id UUID PRIMARY KEY,
+                business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+                client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+                appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
+                amount NUMERIC(10, 2) NOT NULL,
+                currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                status clientpaymentstatus NOT NULL DEFAULT 'pending',
+                mp_preference_id VARCHAR(64),
+                mp_payment_id VARCHAR(64),
+                init_point VARCHAR(500),
+                paid_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
     if not has_index(conn, "ix_client_payments_business"):
-        op.create_index("ix_client_payments_business", "client_payments", ["business_id"])
+        op.execute(sa.text(
+            "CREATE INDEX ix_client_payments_business "
+            "ON client_payments (business_id)"
+        ))
     if not has_index(conn, "ix_client_payments_appointment"):
-        op.create_index("ix_client_payments_appointment", "client_payments", ["appointment_id"])
+        op.execute(sa.text(
+            "CREATE INDEX ix_client_payments_appointment "
+            "ON client_payments (appointment_id)"
+        ))
 
 
 def downgrade() -> None:
